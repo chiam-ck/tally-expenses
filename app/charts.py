@@ -32,7 +32,7 @@ def _empty(width: int, height: int, label: str = "No data yet") -> str:
     )
 
 
-# ── line / area: net-worth trend ────────────────────────────────────────────
+# ── line / area: liquid-cash trend ────────────────────────────────────────────
 
 def line_chart(points: list[tuple[str, float]], width: int = 760, height: int = 220,
                pad_x: int = 16, pad_y: int = 22, color: str = "#3b82f6",

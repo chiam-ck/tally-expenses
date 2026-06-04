@@ -196,7 +196,7 @@ button:disabled { opacity: .55; cursor: default; }
 }
 .card-title .muted { text-transform: none; letter-spacing: 0; font-weight: 400; }
 
-/* hero net-worth card */
+/* hero liquid-cash card */
 .hero {
   position: relative; overflow: hidden;
   border: 1px solid var(--border); border-radius: 18px;

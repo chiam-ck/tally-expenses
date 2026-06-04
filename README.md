@@ -1,6 +1,6 @@
-# Tally — self-hosted expense & net-worth tracker
+# Tally — self-hosted expense & liquid-cash tracker
 
-> *Your money, counted.* One private FastAPI service: a dashboard (net-worth hero,
+> *Your money, counted.* One private FastAPI service: a dashboard (liquid-cash hero,
 > charts), balance capture, a natural-language transaction logger, multi-currency with
 > live FX, recurring charges, history with filters, and account settings — backed by your
 > own Postgres. A self-hosted alternative to a finance spreadsheet.
@@ -49,8 +49,8 @@ from the dashboard. On success they refresh so the dashboard/history update.
 
 | Route | What |
 |---|---|
-| `GET /` | Dashboard: net-worth hero + trend line, spend-by-category donut, daily-spend bars, stat tiles (total/days/burn/projection), latest balances & category tables. Charts are dependency-free server-rendered SVG. Responsive (mobile + desktop) |
-| `GET /history` | Browse history with **filters** (search note/id, account, category, flow, date range) and **pagination** (25/50/100 per page); plus a net-worth-by-snapshot-date table |
+| `GET /` | Dashboard: liquid-cash hero + trend line, spend-by-category donut, daily-spend bars, stat tiles (total/days/burn/projection), latest balances & category tables. Charts are dependency-free server-rendered SVG. Responsive (mobile + desktop) |
+| `GET /history` | Browse history with **filters** (search note/id, account, category, flow, date range) and **pagination** (25/50/100 per page); plus a liquid-cash-by-snapshot-date table |
 | `GET /settings` | Settings area (tabs). Redirects to **Accounts** |
 | `GET /settings/accounts` | Account maintenance: add/edit/activate/deactivate. Delete is guarded — accounts referenced by transactions/balances/recurring can't be hard-deleted (deactivate instead) |
 | `GET /settings/recurring` | Manage recurring charges (add/edit/delete/pause). **Monthly** (every month on the day) or **yearly** (once, in the chosen month). Day 30/31 falls back to month-end |
@@ -87,10 +87,10 @@ Supported: SGD, MYR, USD, EUR, GBP, JPY, CNY, HKD, TWD, THB, IDR, AUD, KRW, INR,
   auto-detects a currency from the text — symbols (`$`/`¥`/`€`/`£`/`฿`/`RM`…), ISO codes
   (`usd`, `myr`…), or words (`ringgit`, `baht`, `yen`, `euro`…).
 - Rates are stored as `to_sgd` in `fx_rates` (created + seeded automatically at startup —
-  no `schema.sql` change). Dashboard net worth and spend totals are shown **SGD-equivalent**
+  no `schema.sql` change). Dashboard liquid cash and spend totals are shown **SGD-equivalent**
   using these rates; the category table shows the native-currency breakdown where it differs.
 - `app_config.myr_to_sgd` remains the static fallback; once `fx_update` runs, the live
-  MYR→SGD rate is used (so the headline net worth reflects market FX, not the fixed 0.30).
+  MYR→SGD rate is used (so the headline liquid cash reflects market FX, not the fixed 0.30).
 
 ## LLM parsing (any OpenAI-compatible provider)
 

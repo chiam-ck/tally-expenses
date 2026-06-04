@@ -148,8 +148,8 @@ def base_ctx(request: Request, **extra) -> dict:
     return ctx
 
 
-def _net_worth_series(fx) -> list:
-    """Combined-SGD net worth per snapshot date, ascending (for the trend line)."""
+def _liquid_cash_series(fx) -> list:
+    """Combined-SGD liquid cash per snapshot date, ascending (for the trend line)."""
     out = []
     for h in reversed(queries.balance_history()):
         ns, nm = queries.d2(h["net_sgd"]), queries.d2(h["net_myr"])
@@ -166,8 +166,8 @@ def page_dashboard(request: Request):
     m = queries.dashboard(t)
     fx = m["fx_rate"]
 
-    # 1) net-worth trend (line/area)
-    series = _net_worth_series(fx)
+    # 1) liquid-cash trend (line/area)
+    series = _liquid_cash_series(fx)
     nw_points = [(r["snap_date"].strftime("%-d %b"), float(r["combined"])) for r in series]
     nw_svg = charts.line_chart(nw_points)
 
@@ -239,7 +239,7 @@ def page_history(
     base_qs = urlencode(keep)
 
     fx = queries.fx_rate()
-    history = _net_worth_series(fx)
+    history = _liquid_cash_series(fx)
     history.reverse()  # newest first for the table
 
     return templates.TemplateResponse(

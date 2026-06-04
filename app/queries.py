@@ -318,7 +318,7 @@ def dashboard(today: date) -> dict:
     net = net_cash()
     net_sgd = net.get("SGD", Decimal("0.00"))
     net_myr = net.get("MYR", Decimal("0.00"))
-    # Combined net worth = sum over every currency present, valued in SGD.
+    # Combined liquid cash = sum over every currency present, valued in SGD.
     combined = sum(
         (d2(bal) * rates.get(cur, Decimal("1")) for cur, bal in net.items()),
         Decimal("0.00"),
@@ -448,7 +448,7 @@ def count_filtered_transactions(f: dict) -> int:
 
 
 def balance_history() -> list[dict]:
-    """Net worth as of each snapshot date (carry-forward latest balance per
+    """Liquid cash as of each snapshot date (carry-forward latest balance per
     account on or before that date), so a day with a partial capture still
     reflects the true standing rather than a smaller same-day sum."""
     return db.query(
