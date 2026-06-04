@@ -1,0 +1,88 @@
+<h2 class="modal-title">Capture balance</h2>
+<p class="note">One snapshot per account for today (server date). Re-saving today updates the same rows.</p>
+
+<div class="flash" id="balance-flash"></div>
+
+<form id="balance-form">
+  <div class="card">
+    {% for r in balance_rows %}
+      <div class="row-balance"
+           data-account="{{ r.account_id }}"
+           data-currency="{{ r.currency }}"
+           data-type="{{ r.type }}">
+        <div class="acct">
+          {{ r.name }}
+          <small>{{ r.account_id }} · {{ r.currency }}{% if r.type == 'liability' %} · liability{% endif %}</small>
+        </div>
+        <input type="number" step="0.01" inputmode="decimal"
+               name="bal_{{ r.account_id }}"
+               class="bal-input"
+               value="{{ '%.2f'|format(r.balance) if r.balance is not none else '' }}"
+               placeholder="0.00">
+      </div>
+    {% endfor %}
+  </div>
+
+  <div class="readout">
+    <div><div class="label">Net cash SGD</div><div class="value" id="net-sgd">0.00</div></div>
+    <div><div class="label">Net cash MYR</div><div class="value" id="net-myr">0.00</div></div>
+  </div>
+
+  <button type="submit" id="save-btn">Save snapshot</button>
+</form>
+
+<script>
+(function () {
+  const root = document.getElementById('modal-balance');
+  if (!root || root.dataset.wired) return;
+  root.dataset.wired = '1';
+
+  const rows = Array.from(root.querySelectorAll('.row-balance'));
+  const flash = root.querySelector('#balance-flash');
+  const fmt = (n) => n.toLocaleString('en-SG', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+
+  function recompute() {
+    let sgd = 0, myr = 0;
+    for (const row of rows) {
+      const v = parseFloat(row.querySelector('.bal-input').value) || 0;
+      const signed = row.dataset.type === 'liability' ? -v : v;
+      if (row.dataset.currency === 'MYR') myr += signed; else sgd += signed;
+    }
+    root.querySelector('#net-sgd').textContent = fmt(sgd);
+    root.querySelector('#net-myr').textContent = fmt(myr);
+  }
+  rows.forEach(r => r.querySelector('.bal-input').addEventListener('input', recompute));
+  recompute();
+
+  root.querySelector('#balance-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const btn = root.querySelector('#save-btn');
+    btn.disabled = true;
+    const payload = { rows: rows.map(r => ({
+      account_id: r.dataset.account,
+      balance: parseFloat(r.querySelector('.bal-input').value) || 0,
+      currency: r.dataset.currency,
+    })) };
+    try {
+      const resp = await fetch('/api/balance', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(payload),
+      });
+      const data = await resp.json();
+      if (resp.ok && data.ok) {
+        flash.className = 'flash ok';
+        flash.textContent = `Saved ${data.rows} accounts. Refreshing…`;
+        setTimeout(() => location.reload(), 650);
+      } else {
+        flash.className = 'flash err';
+        flash.textContent = data.detail || 'Save failed.';
+        btn.disabled = false;
+      }
+    } catch (err) {
+      flash.className = 'flash err';
+      flash.textContent = 'Network error: ' + err;
+      btn.disabled = false;
+    }
+  });
+})();
+</script>

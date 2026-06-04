@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="theme-color" content="#0b1220">
+  <title>{% block title %}{{ app_name }}{% endblock %}</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <a href="/" class="brand"><span class="brand-mark">✓</span>{{ app_name }}</a>
+    <nav>
+      <a href="/">Dashboard</a>
+      <a href="/history">History</a>
+      <a href="/settings">Settings</a>
+      <button type="button" class="navbtn" data-modal-open="balance">Balance</button>
+      <button type="button" class="navbtn" data-modal-open="log">Log</button>
+      <a href="/logout" class="logout" title="Sign out">Sign out</a>
+    </nav>
+  </header>
+  <main class="{% block main_class %}{% endblock %}">
+    {% block content %}{% endblock %}
+  </main>
+
+  <!-- In-screen modals (rendered on every page; their scripts wire up on load) -->
+  <div class="modal-overlay" id="modal-balance" aria-hidden="true">
+    <div class="modal" role="dialog" aria-modal="true" aria-label="Capture balance">
+      <button type="button" class="modal-close" data-modal-close aria-label="Close">&times;</button>
+      {% include "_balance_modal.html" %}
+    </div>
+  </div>
+  <div class="modal-overlay" id="modal-log" aria-hidden="true">
+    <div class="modal" role="dialog" aria-modal="true" aria-label="Log a transaction">
+      <button type="button" class="modal-close" data-modal-close aria-label="Close">&times;</button>
+      {% include "_log_modal.html" %}
+    </div>
+  </div>
+
+  <script>
+  (function () {
+    const body = document.body;
+    function open(id) {
+      const m = document.getElementById('modal-' + id);
+      if (!m) return;
+      m.classList.add('open');
+      m.setAttribute('aria-hidden', 'false');
+      body.style.overflow = 'hidden';
+      const f = m.querySelector('input, textarea, select, button');
+      if (f) setTimeout(() => f.focus(), 30);
+    }
+    function close(overlay) {
+      overlay.classList.remove('open');
+      overlay.setAttribute('aria-hidden', 'true');
+      body.style.overflow = '';
+    }
+    document.addEventListener('click', (e) => {
+      const opener = e.target.closest('[data-modal-open]');
+      if (opener) { e.preventDefault(); open(opener.dataset.modalOpen); return; }
+      if (e.target.matches('[data-modal-close]')) { close(e.target.closest('.modal-overlay')); return; }
+      if (e.target.classList.contains('modal-overlay')) { close(e.target); }
+    });
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') document.querySelectorAll('.modal-overlay.open').forEach(close);
+    });
+    // Auto-open from ?open=balance|log (deep links / old form URLs).
+    const which = new URLSearchParams(location.search).get('open');
+    if (which) open(which);
+    window.__expensesModal = { open, close };
+  })();
+  </script>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

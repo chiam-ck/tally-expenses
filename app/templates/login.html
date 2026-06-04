@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0b1220">
+  <title>Sign in — {{ app_name }}</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <main class="form" style="padding-top: 8vh;">
+    <div class="login-brand">{{ app_name }}</div>
+    <p class="note" style="text-align:center; margin-bottom:18px;">{{ app_tagline }} · sign in to continue</p>
+
+    {% if error %}<div class="flash err">{{ error }}</div>{% endif %}
+
+    <form method="post" action="/login" class="card">
+      <input type="hidden" name="next" value="{{ next }}">
+      <div class="field">
+        <label for="username">Username</label>
+        <input type="text" id="username" name="username" autocomplete="username" autofocus required>
+      </div>
+      <div class="field">
+        <label for="password">Password</label>
+        <input type="password" id="password" name="password" autocomplete="current-password" required>
+      </div>
+      <button type="submit">Sign in</button>
+    </form>
+  </main>
+</body>
+</html>

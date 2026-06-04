@@ -1,0 +1,139 @@
+<h2 class="modal-title">Log a transaction</h2>
+
+<div class="flash" id="log-flash"></div>
+
+<div class="card">
+  <div class="field">
+    <label for="nl">Describe it</label>
+    <textarea id="nl" placeholder="e.g. grab to office 12"></textarea>
+  </div>
+  <button type="button" id="parse-btn" class="secondary">Parse</button>
+</div>
+
+<form id="log-form" class="card hidden">
+  <div class="grid2">
+    <div class="field">
+      <label for="amount">Amount</label>
+      <input type="number" step="0.01" inputmode="decimal" id="amount" required>
+    </div>
+    <div class="field">
+      <label for="currency">Currency</label>
+      <select id="currency">
+        {% for cur in currencies %}<option value="{{ cur.code }}">{{ cur.code }} · {{ cur.symbol }}</option>{% endfor %}
+      </select>
+    </div>
+  </div>
+  <div class="field">
+    <label for="category">Category</label>
+    <select id="category">
+      {% for c in categories %}<option value="{{ c.name }}">{{ c.name }}{% if c.is_discretionary %} (discretionary){% endif %}</option>{% endfor %}
+    </select>
+  </div>
+  <div class="field">
+    <label for="account">Account</label>
+    <select id="account">
+      {% for a in accounts %}<option value="{{ a.account_id }}" data-currency="{{ a.currency }}">{{ a.name }} ({{ a.account_id }})</option>{% endfor %}
+    </select>
+  </div>
+  <div class="field">
+    <label for="note">Note</label>
+    <input type="text" id="note">
+  </div>
+  <button type="submit" id="log-btn">Log it</button>
+</form>
+
+<script>
+(function () {
+  const root = document.getElementById('modal-log');
+  if (!root || root.dataset.wired) return;
+  root.dataset.wired = '1';
+
+  const ACCOUNTS = {{ accounts | map(attribute='account_id') | list | tojson }};
+  const flash = root.querySelector('#log-flash');
+  const form = root.querySelector('#log-form');
+  const accSel = root.querySelector('#account');
+  const curInput = root.querySelector('#currency');
+
+  // DB-driven: read the account's currency from its <option data-currency>.
+  const currencyForAccount = (a) => {
+    const opt = accSel.querySelector('option[value="' + a + '"]');
+    return (opt && opt.dataset.currency) || 'SGD';
+  };
+
+  // Minimal client-side regex fallback for the rare case /api/parse is unreachable.
+  function clientParse(text) {
+    text = (text || '').toLowerCase();
+    const num = text.match(/(\d+(?:\.\d+)?)/);
+    const amount = num ? parseFloat(num[1]) : 0;
+    let category = 'Other';
+    if (/(food|rice|kopi|nasi|caifan|kfc|mcd|subway|bread|breakfast|lunch|dinner|grabfood|teh|makan)/.test(text)) category = 'Food';
+    else if (/(grab|gojek|tada|taxi|mrt|bus|ezlink|fuel|petrol|parking|toll|transport)/.test(text)) category = 'Transport';
+    else if (/(netflix|icloud|spotify|youtube|claude|subscription)/.test(text)) category = 'Subscriptions';
+    let account = 'CASH_SGD';
+    const map = [['dbs cc','DBS_CC'],['mbb cc','MBB_CC'],['isaavy','MBB_ISAAVY'],['dbs','DBS'],['ocbc','OCBC'],['paylah','PAYLAH'],['wise','WISE'],['tngo','TNGO'],['tunai','TUNAI'],['maybank','MBB_MYR'],['myr','MBB_MYR']];
+    for (const [kw, acc] of map) { if (text.includes(kw)) { account = acc; break; } }
+    return { amount, category, account, note: text, currency: currencyForAccount(account) };
+  }
+
+  function fillForm(p) {
+    root.querySelector('#amount').value = p.amount ?? 0;
+    root.querySelector('#category').value = p.category;
+    accSel.value = ACCOUNTS.includes(p.account) ? p.account : 'CASH_SGD';
+    curInput.value = p.currency || currencyForAccount(accSel.value);
+    root.querySelector('#note').value = p.note || '';
+    form.classList.remove('hidden');
+  }
+
+  accSel.addEventListener('change', () => { curInput.value = currencyForAccount(accSel.value); });
+
+  root.querySelector('#parse-btn').addEventListener('click', async () => {
+    const text = root.querySelector('#nl').value.trim();
+    if (!text) return;
+    flash.className = 'flash';
+    let parsed;
+    try {
+      const resp = await fetch('/api/parse', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ text }),
+      });
+      parsed = await resp.json();
+    } catch (err) {
+      parsed = clientParse(text);  // server unreachable -> local regex
+    }
+    fillForm(parsed);
+  });
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const btn = root.querySelector('#log-btn');
+    btn.disabled = true;
+    const payload = {
+      account_id: accSel.value,
+      category: root.querySelector('#category').value,
+      amount: parseFloat(root.querySelector('#amount').value) || 0,
+      currency: curInput.value,
+      note: root.querySelector('#note').value,
+    };
+    try {
+      const resp = await fetch('/api/txn', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(payload),
+      });
+      const data = await resp.json();
+      if (resp.ok && data.ok) {
+        flash.className = 'flash ok';
+        flash.textContent = `Logged ${data.txn_id}. Refreshing…`;
+        setTimeout(() => location.reload(), 650);
+      } else {
+        flash.className = 'flash err';
+        flash.textContent = data.detail || 'Log failed.';
+        btn.disabled = false;
+      }
+    } catch (err) {
+      flash.className = 'flash err';
+      flash.textContent = 'Network error: ' + err;
+      btn.disabled = false;
+    }
+  });
+})();
+</script>

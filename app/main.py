@@ -1,0 +1,595 @@
+"""FastAPI app: pages, JSON API, lifespan (connection pool + scheduler)."""
+from __future__ import annotations
+
+import logging
+from contextlib import asynccontextmanager
+from datetime import datetime
+from decimal import Decimal, InvalidOperation
+from pathlib import Path
+
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
+
+import calendar
+import math
+import os
+import re
+from urllib.parse import quote, urlencode
+
+from . import auth, charts, db, fx, jobs, llm, queries
+from .db import SGT
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
+log = logging.getLogger("expenses")
+
+BASE_DIR = Path(__file__).resolve().parent
+templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
+templates.env.filters["money"] = lambda v: f"{Decimal(str(v or 0)):,.2f}"
+
+# Branding (env-overridable so it's a one-line change).
+APP_NAME = os.environ.get("APP_NAME", "Tally")
+APP_TAGLINE = os.environ.get("APP_TAGLINE", "Your money, counted")
+templates.env.globals["app_name"] = APP_NAME
+templates.env.globals["app_tagline"] = APP_TAGLINE
+
+MONTHS = [(i, calendar.month_name[i]) for i in range(1, 13)]
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    db.open_pool()
+    try:
+        queries.ensure_fx_schema()  # additive: create + seed fx_rates if missing
+        queries.ensure_recurring_schema()  # additive: frequency + month_of_year
+    except Exception as exc:  # noqa: BLE001
+        log.warning("schema ensure failed: %s", exc)
+    scheduler = None
+    try:
+        from datetime import datetime as _dt
+
+        from apscheduler.schedulers.background import BackgroundScheduler
+
+        scheduler = BackgroundScheduler(timezone=SGT)
+        jobs.register_jobs(scheduler)
+        # Refresh FX once shortly after boot (background thread; never blocks startup).
+        scheduler.add_job(jobs.fx_update, "date", run_date=_dt.now(SGT), id="fx_boot")
+        scheduler.start()
+        app.state.scheduler = scheduler
+        log.info("scheduler started with jobs: %s", [j.id for j in scheduler.get_jobs()])
+        yield
+    finally:
+        if scheduler is not None:
+            scheduler.shutdown(wait=False)
+        db.close_pool()
+
+
+app = FastAPI(title="Expenses Tracker", lifespan=lifespan)
+app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
+
+# Paths reachable without a session (login flow + static assets/CSS for it).
+_PUBLIC_PATHS = {"/login", "/logout"}
+
+
+@app.middleware("http")
+async def require_auth(request: Request, call_next):
+    path = request.url.path
+    if path in _PUBLIC_PATHS or path.startswith("/static/") or auth.is_authed(request):
+        return await call_next(request)
+    if path.startswith("/api/"):
+        return JSONResponse({"detail": "unauthorized"}, status_code=401)
+    return RedirectResponse(url=f"/login?next={quote(path)}", status_code=303)
+
+
+def today():
+    return datetime.now(SGT).date()
+
+
+# ── helpers ─────────────────────────────────────────────────────────────────
+
+def _to_decimal(value) -> Decimal:
+    try:
+        return Decimal(str(value)).quantize(Decimal("0.01"))
+    except (InvalidOperation, TypeError, ValueError):
+        raise HTTPException(status_code=400, detail=f"invalid amount: {value!r}")
+
+
+# ── auth pages ──────────────────────────────────────────────────────────────
+
+@app.get("/login", response_class=HTMLResponse)
+def login_form(request: Request, next: str = "/"):
+    if auth.is_authed(request):
+        return RedirectResponse(url="/", status_code=303)
+    return templates.TemplateResponse(
+        "login.html", {"request": request, "next": next, "error": None}
+    )
+
+
+@app.post("/login")
+async def login_submit(request: Request):
+    form = await request.form()
+    username = form.get("username")
+    password = form.get("password")
+    nxt = form.get("next") or "/"
+    if not nxt.startswith("/"):  # avoid open redirect
+        nxt = "/"
+    if auth.verify_credentials(username, password):
+        resp = RedirectResponse(url=nxt, status_code=303)
+        auth.set_cookie(resp)
+        return resp
+    return templates.TemplateResponse(
+        "login.html",
+        {"request": request, "next": nxt, "error": "Invalid username or password."},
+        status_code=401,
+    )
+
+
+@app.get("/logout")
+def logout():
+    resp = RedirectResponse(url="/login", status_code=303)
+    auth.clear_cookie(resp)
+    return resp
+
+
+# ── pages ───────────────────────────────────────────────────────────────────
+
+def base_ctx(request: Request, **extra) -> dict:
+    """Context every page needs so the Balance/Log modals (included in base.html)
+    can render on any page. Cheap reference reads."""
+    ctx = {
+        "request": request,
+        "accounts": queries.accounts(),
+        "categories": queries.categories(),
+        "currencies": fx.CURRENCIES,
+        "balance_rows": [r for r in queries.latest_balances() if r["active"]],
+    }
+    ctx.update(extra)
+    return ctx
+
+
+def _net_worth_series(fx) -> list:
+    """Combined-SGD net worth per snapshot date, ascending (for the trend line)."""
+    out = []
+    for h in reversed(queries.balance_history()):
+        ns, nm = queries.d2(h["net_sgd"]), queries.d2(h["net_myr"])
+        combined = (ns + nm * fx).quantize(queries.TWO)
+        out.append({
+            "snap_date": h["snap_date"], "net_sgd": ns, "net_myr": nm, "combined": combined,
+        })
+    return out
+
+
+@app.get("/", response_class=HTMLResponse)
+def page_dashboard(request: Request):
+    t = today()
+    m = queries.dashboard(t)
+    fx = m["fx_rate"]
+
+    # 1) net-worth trend (line/area)
+    series = _net_worth_series(fx)
+    nw_points = [(r["snap_date"].strftime("%-d %b"), float(r["combined"])) for r in series]
+    nw_svg = charts.line_chart(nw_points)
+
+    # 2) spend by category (donut + legend), SGD-equivalent
+    cat_segs, cat_legend = [], []
+    visible = [c for c in m["spend_by_category"] if c["sgd_eq"] > 0]
+    for i, c in enumerate(visible):
+        color = charts.SERIES[i % len(charts.SERIES)]
+        cat_segs.append({"value": float(c["sgd_eq"]), "color": color})
+        cat_legend.append({
+            "category": c["category"], "sgd": c["sgd_eq"],
+            "color": color, "is_discretionary": c["is_discretionary"],
+        })
+    donut_svg = charts.donut_chart(
+        cat_segs, center_label=charts._money(m["total_expenses_sgd"]), center_sub="MTD SGD",
+    )
+
+    # 3) daily spend trend (bars, day 1..elapsed)
+    ds = queries.daily_spend(t.replace(day=1), t)
+    elapsed = m["days_elapsed"]
+    bars = [{
+        "label": str(day),
+        "value": float(ds.get(t.replace(day=day), 0)),
+        "show_label": (day == 1 or day % 5 == 0 or day == elapsed),
+    } for day in range(1, elapsed + 1)]
+    bars_svg = charts.bar_chart(bars)
+
+    fx_detail = queries.fx_rates_detail()
+    fx_updated = max((r["updated_at"] for r in fx_detail), default=None)
+    return templates.TemplateResponse(
+        "dashboard.html",
+        base_ctx(request, m=m, nw_svg=nw_svg, donut_svg=donut_svg,
+                 bars_svg=bars_svg, cat_legend=cat_legend, fx_updated=fx_updated),
+    )
+
+
+@app.get("/history", response_class=HTMLResponse)
+def page_history(
+    request: Request,
+    page: int = 1,
+    per_page: int = 25,
+    account: str = "",
+    category: str = "",
+    flow: str = "",
+    date_from: str = "",
+    date_to: str = "",
+    q: str = "",
+):
+    filters = {
+        "account": account.strip() or None,
+        "category": category.strip() or None,
+        "flow": flow.strip() or None,
+        "date_from": date_from.strip() or None,
+        "date_to": date_to.strip() or None,
+        "q": q.strip() or None,
+    }
+    per_page = min(max(per_page, 5), 200)
+    total = queries.count_filtered_transactions(filters)
+    pages = max(1, math.ceil(total / per_page))
+    page = min(max(page, 1), pages)
+    offset = (page - 1) * per_page
+    txns = queries.filtered_transactions(filters, per_page, offset)
+
+    # querystring of active filters (minus page) so pager links keep the filters
+    keep = {k: v for k, v in {
+        "account": account, "category": category, "flow": flow,
+        "date_from": date_from, "date_to": date_to, "q": q, "per_page": per_page,
+    }.items() if v not in ("", None)}
+    base_qs = urlencode(keep)
+
+    fx = queries.fx_rate()
+    history = _net_worth_series(fx)
+    history.reverse()  # newest first for the table
+
+    return templates.TemplateResponse(
+        "history.html",
+        base_ctx(
+            request,
+            txns=txns,
+            balance_history=history,
+            fx_rate=fx,
+            # filter form state
+            f_account=account, f_category=category, f_flow=flow,
+            f_date_from=date_from, f_date_to=date_to, f_q=q,
+            has_filters=any(filters.values()),
+            # pagination
+            page=page, pages=pages, per_page=per_page, total=total,
+            shown_from=(offset + 1 if total else 0),
+            shown_to=min(offset + per_page, total),
+            base_qs=base_qs,
+        ),
+    )
+
+
+# ── settings: shared ────────────────────────────────────────────────────────
+
+@app.get("/settings")
+def page_settings():
+    return RedirectResponse(url="/settings/accounts", status_code=303)
+
+
+# ── settings: FX rates ──────────────────────────────────────────────────────
+
+@app.get("/settings/fx", response_class=HTMLResponse)
+def page_fx(request: Request):
+    detail = {r["currency"]: r for r in queries.fx_rates_detail()}
+    rows = []
+    for c in fx.CURRENCIES:
+        r = detail.get(c["code"])
+        if not r:
+            continue
+        to_sgd_v = Decimal(str(r["to_sgd"]))
+        per_sgd = (Decimal("1") / to_sgd_v).quantize(Decimal("0.0001")) if to_sgd_v else Decimal("0")
+        rows.append({
+            "code": c["code"], "name": c["name"], "symbol": c["symbol"],
+            "to_sgd": to_sgd_v, "per_sgd": per_sgd,
+            "source": r["source"], "updated_at": r["updated_at"],
+        })
+    fx_updated = max((r["updated_at"] for r in detail.values()), default=None)
+    return templates.TemplateResponse(
+        "fx.html", base_ctx(request, active_tab="fx", fx_rows=rows, fx_updated=fx_updated)
+    )
+
+
+@app.get("/fx")
+def fx_redirect():
+    return RedirectResponse(url="/settings/fx", status_code=307)
+
+
+# ── settings: accounts ──────────────────────────────────────────────────────
+
+_ACCOUNT_ID_RE = re.compile(r"^[A-Z0-9_]{2,24}$")
+
+
+def _parse_account_form(form) -> dict:
+    name = (form.get("name") or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="name is required")
+    currency = (form.get("currency") or "SGD").upper()
+    if currency not in fx.SUPPORTED:
+        raise HTTPException(status_code=400, detail=f"unsupported currency: {currency!r}")
+    acct_type = form.get("type")
+    if acct_type not in ("asset", "liability"):
+        raise HTTPException(status_code=400, detail="type must be asset or liability")
+    try:
+        sort_order = int(form.get("sort_order") or 0)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="invalid sort_order")
+    return {
+        "name": name, "currency": currency, "type": acct_type,
+        "active": bool(form.get("active")), "sort_order": sort_order,
+    }
+
+
+@app.get("/settings/accounts", response_class=HTMLResponse)
+def page_accounts(request: Request, edit: str = "", err: str = ""):
+    editing = queries.get_account(edit) if edit else None
+    items = []
+    for a in queries.accounts():
+        refs = queries.account_reference_counts(a["account_id"])
+        a = dict(a)
+        a["refs"] = (refs["txns"] + refs["bals"] + refs["recs"]) if refs else 0
+        items.append(a)
+    return templates.TemplateResponse(
+        "accounts.html",
+        base_ctx(request, active_tab="accounts", items=items, editing=editing,
+                 err=err, next_sort=queries.next_account_sort()),
+    )
+
+
+@app.post("/settings/accounts/create")
+async def account_create(request: Request):
+    form = await request.form()
+    account_id = (form.get("account_id") or "").strip().upper()
+    if not _ACCOUNT_ID_RE.match(account_id):
+        raise HTTPException(status_code=400, detail="account_id must be 2–24 of A–Z 0–9 _")
+    if queries.get_account(account_id):
+        raise HTTPException(status_code=400, detail=f"account {account_id} already exists")
+    queries.create_account({"account_id": account_id, **_parse_account_form(form)})
+    return RedirectResponse(url="/settings/accounts", status_code=303)
+
+
+@app.post("/settings/accounts/{account_id}/update")
+async def account_update(request: Request, account_id: str):
+    if not queries.get_account(account_id):
+        raise HTTPException(status_code=404, detail="account not found")
+    form = await request.form()
+    queries.update_account(account_id, _parse_account_form(form))
+    return RedirectResponse(url="/settings/accounts", status_code=303)
+
+
+@app.post("/settings/accounts/{account_id}/toggle")
+def account_toggle(account_id: str):
+    queries.toggle_account(account_id)
+    return RedirectResponse(url="/settings/accounts", status_code=303)
+
+
+@app.post("/settings/accounts/{account_id}/delete")
+def account_delete(account_id: str):
+    refs = queries.account_reference_counts(account_id)
+    if refs and (refs["txns"] or refs["bals"] or refs["recs"]):
+        msg = (f"Can't delete {account_id} — referenced by {refs['txns']} txns, "
+               f"{refs['bals']} balances, {refs['recs']} recurring. Deactivate instead.")
+        return RedirectResponse(url=f"/settings/accounts?err={quote(msg)}", status_code=303)
+    queries.delete_account(account_id)
+    return RedirectResponse(url="/settings/accounts", status_code=303)
+
+
+# ── settings: recurring ─────────────────────────────────────────────────────
+
+def _parse_recurring_form(form) -> dict:
+    valid_accounts = queries.account_map()
+    account_id = form.get("account_id")
+    if account_id not in valid_accounts:
+        raise HTTPException(status_code=400, detail=f"unknown account_id: {account_id!r}")
+    category = form.get("category")
+    if category not in queries.category_names():
+        raise HTTPException(status_code=400, detail=f"unknown category: {category!r}")
+    currency = (form.get("currency") or valid_accounts[account_id]["currency"]).upper()
+    if currency not in fx.SUPPORTED:
+        raise HTTPException(status_code=400, detail=f"unsupported currency: {currency!r}")
+
+    flow = form.get("flow") or "expense"
+    if flow not in ("expense", "income", "transfer"):
+        flow = "expense"
+    frequency = form.get("frequency") or "monthly"
+    if frequency not in ("monthly", "yearly"):
+        frequency = "monthly"
+
+    name = (form.get("name") or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="name is required")
+
+    try:
+        dom = max(1, min(31, int(form.get("day_of_month") or 1)))
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="invalid day_of_month")
+
+    moy = None
+    if frequency == "yearly":
+        try:
+            moy = max(1, min(12, int(form.get("month_of_year") or 1)))
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="invalid month_of_year")
+
+    return {
+        "name": name,
+        "account_id": account_id,
+        "flow": flow,
+        "category": category,
+        "amount": _to_decimal(form.get("amount")),
+        "currency": currency,
+        "day_of_month": dom,
+        "frequency": frequency,
+        "month_of_year": moy,
+        "active": bool(form.get("active")),
+        "start_date": (form.get("start_date") or "").strip() or None,
+        "end_date": (form.get("end_date") or "").strip() or None,
+        "note": (form.get("note") or "").strip(),
+    }
+
+
+@app.get("/settings/recurring", response_class=HTMLResponse)
+def page_recurring(request: Request, edit: str = ""):
+    editing = queries.get_recurring(edit) if edit else None
+    return templates.TemplateResponse(
+        "recurring.html",
+        base_ctx(request, active_tab="recurring", items=queries.list_recurring(),
+                 editing=editing, months=MONTHS),
+    )
+
+
+@app.get("/recurring")
+def recurring_redirect():
+    return RedirectResponse(url="/settings/recurring", status_code=307)
+
+
+@app.post("/settings/recurring/create")
+async def recurring_create(request: Request):
+    form = await request.form()
+    queries.create_recurring(_parse_recurring_form(form))
+    return RedirectResponse(url="/settings/recurring", status_code=303)
+
+
+@app.post("/settings/recurring/{recur_id}/update")
+async def recurring_update(request: Request, recur_id: str):
+    if not queries.get_recurring(recur_id):
+        raise HTTPException(status_code=404, detail="recurring not found")
+    form = await request.form()
+    queries.update_recurring(recur_id, _parse_recurring_form(form))
+    return RedirectResponse(url="/settings/recurring", status_code=303)
+
+
+@app.post("/settings/recurring/{recur_id}/delete")
+def recurring_delete(recur_id: str):
+    queries.delete_recurring(recur_id)
+    return RedirectResponse(url="/settings/recurring", status_code=303)
+
+
+@app.post("/settings/recurring/{recur_id}/toggle")
+def recurring_toggle(recur_id: str):
+    queries.toggle_recurring(recur_id)
+    return RedirectResponse(url="/settings/recurring", status_code=303)
+
+
+# Old standalone form URLs now open as modals on the dashboard (preserves deep
+# links / Add-to-Home-Screen shortcuts).
+@app.get("/balance")
+def page_balance():
+    return RedirectResponse(url="/?open=balance", status_code=307)
+
+
+@app.get("/log")
+def page_log():
+    return RedirectResponse(url="/?open=log", status_code=307)
+
+
+# ── JSON API ────────────────────────────────────────────────────────────────
+
+@app.get("/api/dashboard")
+def api_dashboard():
+    return JSONResponse(_jsonable(queries.dashboard(today())))
+
+
+@app.get("/api/fx")
+def api_fx():
+    return JSONResponse(_jsonable({
+        "rates": queries.fx_rates_detail(),
+        "currencies": fx.CURRENCIES,
+    }))
+
+
+@app.post("/api/balance")
+async def api_balance(request: Request):
+    body = await request.json()
+    rows = body.get("rows")
+    if not isinstance(rows, list) or not rows:
+        raise HTTPException(status_code=400, detail="rows must be a non-empty list")
+
+    valid_accounts = queries.account_map()
+    snap = today()
+    n = 0
+    for row in rows:
+        account_id = row.get("account_id")
+        if account_id not in valid_accounts:
+            raise HTTPException(status_code=400, detail=f"unknown account_id: {account_id!r}")
+        balance = _to_decimal(row.get("balance"))
+        currency = row.get("currency") or valid_accounts[account_id]["currency"]
+        queries.upsert_balance(snap, account_id, balance, currency, note=row.get("note", ""))
+        n += 1
+    return {"ok": True, "rows": n}
+
+
+@app.post("/api/txn")
+async def api_txn(request: Request):
+    body = await request.json()
+    account_id = body.get("account_id")
+    category = body.get("category")
+
+    valid_accounts = queries.account_map()
+    if account_id not in valid_accounts:
+        raise HTTPException(status_code=400, detail=f"unknown account_id: {account_id!r}")
+    if category not in queries.category_names():
+        raise HTTPException(status_code=400, detail=f"unknown category: {category!r}")
+
+    amount = _to_decimal(body.get("amount"))
+    currency = (body.get("currency") or valid_accounts[account_id]["currency"]).upper()
+    if currency not in fx.SUPPORTED:
+        raise HTTPException(status_code=400, detail=f"unsupported currency: {currency!r}")
+    flow = body.get("flow") or "expense"
+    note = (body.get("note") or "")[:200]
+
+    now = datetime.now(SGT)
+    txn_id = "T" + now.strftime("%Y%m%d%H%M%S")
+    queries.insert_transaction(
+        txn_id=txn_id,
+        txn_date=now.date(),
+        account_id=account_id,
+        flow=flow,
+        category=category,
+        amount=amount,
+        currency=currency,
+        source="manual",
+        note=note,
+    )
+    return {"ok": True, "txn_id": txn_id}
+
+
+@app.post("/api/parse")
+async def api_parse(request: Request):
+    body = await request.json()
+    text = body.get("text", "")
+    # llm.parse never raises -> never 5xx.
+    return llm.parse(text)
+
+
+# ── manual job triggers (handy for ops / smoke tests; tailnet-only) ──────────
+
+@app.post("/api/jobs/{name}")
+def api_run_job(name: str):
+    fn = {
+        "recurring_poster": jobs.recurring_poster,
+        "monthly_rollover": jobs.monthly_rollover,
+        "weekly_digest": jobs.weekly_digest,
+        "fx_update": jobs.fx_update,
+    }.get(name)
+    if fn is None:
+        raise HTTPException(status_code=404, detail=f"unknown job: {name}")
+    return fn()
+
+
+# ── JSON serialization for Decimal/date ─────────────────────────────────────
+
+def _jsonable(obj):
+    from datetime import date
+
+    if isinstance(obj, dict):
+        return {k: _jsonable(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_jsonable(v) for v in obj]
+    if isinstance(obj, Decimal):
+        return float(obj)
+    if isinstance(obj, date):
+        return obj.isoformat()
+    return obj

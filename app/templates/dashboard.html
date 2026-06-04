@@ -1,0 +1,128 @@
+{% extends "base.html" %}
+{% block title %}{{ app_name }} — Dashboard{% endblock %}
+{% block main_class %}dash{% endblock %}
+{% block content %}
+<div class="brand-hero">
+  <div class="brand-wordmark">{{ app_name }}</div>
+  <div class="brand-tagline">{{ app_tagline }}</div>
+  <span class="pill brand-date">{{ m.today }}</span>
+</div>
+
+<!-- HERO: net worth + trend -->
+<section class="hero">
+  <div class="hero-main">
+    <div class="hero-label">Net worth · Combined SGD</div>
+    <div class="hero-value">{{ m.net_cash.combined_sgd | money }}</div>
+    <div class="hero-sub">
+      <span class="chip"><i class="swatch sgd"></i>Net SGD <b>{{ m.net_cash.SGD | money }}</b></span>
+      <span class="chip"><i class="swatch myr"></i>Net MYR <b>{{ m.net_cash.MYR | money }}</b></span>
+      <span class="chip muted">FX {{ m.fx_rate }}</span>
+    </div>
+  </div>
+  <div class="hero-chart">{{ nw_svg | safe }}</div>
+</section>
+
+<!-- donut (spend by category) + stat tiles -->
+<div class="dash-row">
+  <section class="card donut-card">
+    <h3 class="card-title">Spend by category · MTD</h3>
+    <div class="donut-wrap">
+      <div class="donut-svg">{{ donut_svg | safe }}</div>
+      <ul class="legend">
+        {% for c in cat_legend %}
+        <li>
+          <span class="dot" style="background:{{ c.color }}"></span>
+          <span class="legend-name">{{ c.category }}{% if c.is_discretionary %}<span class="tag disc">disc</span>{% endif %}</span>
+          <b class="legend-val">{{ c.sgd | money }}</b>
+        </li>
+        {% else %}
+        <li class="muted">No expenses this month yet.</li>
+        {% endfor %}
+      </ul>
+    </div>
+    {% if fx_updated %}<p class="note" style="margin-top:auto; padding-top:10px">Amounts shown SGD‑equivalent · FX updated {{ fx_updated.strftime('%-d %b, %H:%M') }} (open.er-api.com)</p>{% endif %}
+  </section>
+
+  <section class="stat-tiles">
+    <div class="tile">
+      <div class="t-label">Total MTD · SGD</div>
+      <div class="t-value">{{ m.total_expenses_sgd | money }}</div>
+    </div>
+    <div class="tile">
+      <div class="t-label">Days elapsed</div>
+      <div class="t-value">{{ m.days_elapsed }}<span class="t-of">/ {{ m.days_in_month }}</span></div>
+    </div>
+    <div class="tile">
+      <div class="t-label">Avg daily burn</div>
+      <div class="t-value">{{ m.avg_daily_burn | money }}</div>
+      <div class="t-foot">discretionary</div>
+    </div>
+    <div class="tile accent">
+      <div class="t-label">Projected month</div>
+      <div class="t-value">{{ m.projected_month | money }}</div>
+      <div class="t-foot">booked + burn × {{ m.days_remaining }}d</div>
+    </div>
+  </section>
+</div>
+
+<!-- daily spend trend -->
+<section class="card">
+  <h3 class="card-title">Daily spend · this month <span class="muted">(SGD, peak highlighted)</span></h3>
+  <div class="chart-wrap chart-wide">{{ bars_svg | safe }}</div>
+</section>
+
+<!-- detail tables -->
+<div class="cols">
+  <section>
+    <h2>Latest balances</h2>
+    <div class="card">
+      <table>
+        <thead><tr><th>Account</th><th>Cur</th><th class="num">Balance</th><th class="num">As of</th></tr></thead>
+        <tbody>
+        {% for b in m.latest_balances %}
+          <tr>
+            <td>{{ b.name }}{% if b.type == 'liability' %}<span class="tag">liability</span>{% endif %}</td>
+            <td class="muted">{{ b.currency }}</td>
+            <td class="num {% if b.type == 'liability' and b.balance %}neg{% endif %}">{{ b.balance | money }}</td>
+            <td class="num muted">{{ b.snap_date or '—' }}</td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>Spend by category (MTD)</h2>
+    <div class="card">
+      <table>
+        <thead>
+          <tr><th>Category</th><th class="num">SGD‑eq</th></tr>
+        </thead>
+        <tbody>
+        {% for c in m.spend_by_category %}
+          <tr>
+            <td>
+              {{ c.category }}{% if c.is_discretionary %}<span class="tag disc">discretionary</span>{% endif %}
+              {% if c.multi_currency %}<br><small class="muted">{% for n in c.native %}{{ n.amount | money }} {{ n.currency }}{% if not loop.last %} · {% endif %}{% endfor %}</small>{% endif %}
+            </td>
+            <td class="num">{{ c.sgd_eq | money }}</td>
+          </tr>
+        {% else %}
+          <tr><td colspan="2" class="muted">No expenses this month yet.</td></tr>
+        {% endfor %}
+        </tbody>
+        <tfoot>
+          <tr><th>Total</th><th class="num">{{ m.total_expenses_sgd | money }}</th></tr>
+        </tfoot>
+      </table>
+    </div>
+  </section>
+</div>
+
+<div class="links">
+  <a href="#" data-modal-open="balance">Capture balance →</a>
+  <a href="#" data-modal-open="log">Log a transaction →</a>
+  <a href="/history">Browse history →</a>
+</div>
+{% endblock %}

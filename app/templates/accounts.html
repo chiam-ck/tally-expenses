@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+{% block title %}{{ app_name }} — Settings · Accounts{% endblock %}
+{% block main_class %}dash{% endblock %}
+{% block content %}
+<h1>Settings</h1>
+{% include "_settings_tabs.html" %}
+
+<div class="dash-head">
+  <h2 style="margin:0">Accounts</h2>
+  <span class="pill">{{ items | length }} accounts</span>
+</div>
+<p class="note">Accounts feed the balance form, net cash, and dropdowns. Deactivating hides an account from the balance form but keeps its history. Accounts referenced by data can't be deleted — deactivate instead.</p>
+
+{% if err %}<div class="flash err">{{ err }}</div>{% endif %}
+
+<div class="rec-list">
+{% for a in items %}
+  <div class="rec-item {% if not a.active %}row-off{% endif %}">
+    <div class="rec-top">
+      <div class="rec-name">{{ a.name }}</div>
+      <div class="rec-amount"><span class="tag {% if a.type == 'liability' %}freq-y{% else %}freq-m{% endif %}">{{ a.type }}</span></div>
+    </div>
+    <div class="rec-meta muted"><code>{{ a.account_id }}</code> · {{ a.currency }} · sort {{ a.sort_order }} · {{ a.refs }} refs</div>
+    <div class="rec-actions">
+      <form method="post" action="/settings/accounts/{{ a.account_id }}/toggle">
+        <button type="submit" class="chip-btn {% if a.active %}on{% else %}off{% endif %}">{{ 'Active' if a.active else 'Inactive' }}</button>
+      </form>
+      <a class="btn-link rec-edit" href="/settings/accounts?edit={{ a.account_id }}#form">Edit</a>
+      <form method="post" action="/settings/accounts/{{ a.account_id }}/delete"
+            onsubmit="return confirm('Delete account {{ a.account_id }}?')">
+        <button type="submit" class="btn-link danger" {% if a.refs %}title="Referenced by {{ a.refs }} rows — deactivate instead"{% endif %}>Delete</button>
+      </form>
+    </div>
+  </div>
+{% else %}
+  <p class="muted">No accounts yet.</p>
+{% endfor %}
+</div>
+
+<h2 id="form">{% if editing %}Edit “{{ editing.name }}” ({{ editing.account_id }}){% else %}Add an account{% endif %}</h2>
+<form class="card" method="post"
+      action="{% if editing %}/settings/accounts/{{ editing.account_id }}/update{% else %}/settings/accounts/create{% endif %}">
+  <div class="filter-grid">
+    <div class="field">
+      <label for="a-id">Account ID</label>
+      <input type="text" id="a-id" name="account_id"
+             value="{{ editing.account_id if editing else '' }}"
+             {% if editing %}readonly{% endif %}
+             placeholder="e.g. CASH_USD" pattern="[A-Za-z0-9_]{2,24}" required>
+    </div>
+    <div class="field">
+      <label for="a-name">Name</label>
+      <input type="text" id="a-name" name="name" value="{{ editing.name if editing else '' }}" required placeholder="e.g. US Dollar cash">
+    </div>
+    <div class="field">
+      <label for="a-currency">Currency</label>
+      <select id="a-currency" name="currency">
+        {% for cur in currencies %}<option value="{{ cur.code }}" {% if (editing.currency if editing else 'SGD') == cur.code %}selected{% endif %}>{{ cur.code }} · {{ cur.symbol }}</option>{% endfor %}
+      </select>
+    </div>
+    <div class="field">
+      <label for="a-type">Type</label>
+      <select id="a-type" name="type">
+        <option value="asset" {% if not editing or editing.type == 'asset' %}selected{% endif %}>Asset</option>
+        <option value="liability" {% if editing and editing.type == 'liability' %}selected{% endif %}>Liability</option>
+      </select>
+    </div>
+    <div class="field">
+      <label for="a-sort">Sort order</label>
+      <input type="number" id="a-sort" name="sort_order" value="{{ editing.sort_order if editing else next_sort }}">
+    </div>
+    <div class="field check">
+      <label class="inline"><input type="checkbox" name="active" {% if not editing or editing.active %}checked{% endif %}> Active</label>
+    </div>
+  </div>
+  <div class="filter-actions">
+    <button type="submit">{% if editing %}Save changes{% else %}Add account{% endif %}</button>
+    {% if editing %}<a class="btn-link" href="/settings/accounts">Cancel</a>{% endif %}
+  </div>
+</form>
+{% endblock %}

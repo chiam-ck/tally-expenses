@@ -1,0 +1,17 @@
+# secrets — never commit the real env
+.env
+
+# python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+
+# macOS
+.DS_Store
+._*
+
+# editor
+.idea/
+.vscode/

@@ -1,0 +1,132 @@
+{% extends "base.html" %}
+{% block title %}{{ app_name }} — Recurring{% endblock %}
+{% block main_class %}dash{% endblock %}
+{% block content %}
+<h1>Settings</h1>
+{% include "_settings_tabs.html" %}
+
+<div class="dash-head">
+  <h2 style="margin:0">Recurring charges</h2>
+  <span class="pill">{{ items | length }} templates</span>
+</div>
+<p class="note">Auto-posted to the ledger by the daily poster (00:10). Monthly fires every month on the chosen day; yearly fires once, in the chosen month. Day 30/31 falls back to month-end in short months.</p>
+
+<div class="rec-list">
+{% for r in items %}
+  <div class="rec-item {% if not r.active %}row-off{% endif %}">
+    <div class="rec-top">
+      <div class="rec-name">{{ r.name }}</div>
+      <div class="rec-amount">{{ r.amount | money }} <span class="muted">{{ r.currency }}</span></div>
+    </div>
+    <div class="rec-meta muted">{{ r.account_id }} · {{ r.category }} · {{ r.flow }}</div>
+    <div class="rec-sched">
+      {% if r.frequency == 'yearly' %}
+        <span class="tag freq-y">Yearly</span> {{ r.day_of_month }} {{ months[r.month_of_year - 1][1] if r.month_of_year else '?' }}
+      {% else %}
+        <span class="tag freq-m">Monthly</span> day {{ r.day_of_month }}
+      {% endif %}
+    </div>
+    {% if r.note %}<div class="rec-note muted">{{ r.note }}</div>{% endif %}
+    <div class="rec-actions">
+      <form method="post" action="/settings/recurring/{{ r.recur_id }}/toggle">
+        <button type="submit" class="chip-btn {% if r.active %}on{% else %}off{% endif %}">{{ 'Active' if r.active else 'Paused' }}</button>
+      </form>
+      <a class="btn-link rec-edit" href="/settings/recurring?edit={{ r.recur_id }}#form">Edit</a>
+      <form method="post" action="/settings/recurring/{{ r.recur_id }}/delete"
+            onsubmit="return confirm('Delete {{ r.name }}?')">
+        <button type="submit" class="btn-link danger">Delete</button>
+      </form>
+    </div>
+  </div>
+{% else %}
+  <p class="muted">No recurring templates yet — add one below.</p>
+{% endfor %}
+</div>
+
+<h2 id="form">{% if editing %}Edit “{{ editing.name }}” ({{ editing.recur_id }}){% else %}Add a recurring charge{% endif %}</h2>
+<form class="card" method="post"
+      action="{% if editing %}/settings/recurring/{{ editing.recur_id }}/update{% else %}/settings/recurring/create{% endif %}">
+  <div class="filter-grid">
+    <div class="field" style="grid-column: 1 / -1">
+      <label for="r-name">Name</label>
+      <input type="text" id="r-name" name="name" value="{{ editing.name if editing else '' }}" required placeholder="e.g. Netflix, Road tax">
+    </div>
+    <div class="field">
+      <label for="r-account">Account</label>
+      <select id="r-account" name="account_id">
+        {% for a in accounts %}<option value="{{ a.account_id }}" {% if editing and editing.account_id == a.account_id %}selected{% endif %}>{{ a.name }} ({{ a.account_id }})</option>{% endfor %}
+      </select>
+    </div>
+    <div class="field">
+      <label for="r-category">Category</label>
+      <select id="r-category" name="category">
+        {% for c in categories %}<option value="{{ c.name }}" {% if editing and editing.category == c.name %}selected{% endif %}>{{ c.name }}</option>{% endfor %}
+      </select>
+    </div>
+    <div class="field">
+      <label for="r-flow">Flow</label>
+      <select id="r-flow" name="flow">
+        {% for fl in ['expense', 'income', 'transfer'] %}<option value="{{ fl }}" {% if (editing.flow if editing else 'expense') == fl %}selected{% endif %}>{{ fl }}</option>{% endfor %}
+      </select>
+    </div>
+    <div class="field">
+      <label for="r-amount">Amount</label>
+      <input type="number" step="0.01" inputmode="decimal" id="r-amount" name="amount" value="{{ '%.2f'|format(editing.amount) if editing else '' }}" required>
+    </div>
+    <div class="field">
+      <label for="r-currency">Currency</label>
+      <select id="r-currency" name="currency">
+        {% for cur in currencies %}<option value="{{ cur.code }}" {% if (editing.currency if editing else 'SGD') == cur.code %}selected{% endif %}>{{ cur.code }} · {{ cur.symbol }}</option>{% endfor %}
+      </select>
+    </div>
+    <div class="field">
+      <label for="r-frequency">Frequency</label>
+      <select id="r-frequency" name="frequency">
+        <option value="monthly" {% if not editing or editing.frequency == 'monthly' %}selected{% endif %}>Monthly</option>
+        <option value="yearly" {% if editing and editing.frequency == 'yearly' %}selected{% endif %}>Yearly</option>
+      </select>
+    </div>
+    <div class="field">
+      <label for="r-dom">Day of month</label>
+      <input type="number" min="1" max="31" id="r-dom" name="day_of_month" value="{{ editing.day_of_month if editing else 1 }}" required>
+    </div>
+    <div class="field" id="moy-field">
+      <label for="r-moy">Month (yearly)</label>
+      <select id="r-moy" name="month_of_year">
+        {% for num, name in months %}<option value="{{ num }}" {% if editing and editing.month_of_year == num %}selected{% endif %}>{{ name }}</option>{% endfor %}
+      </select>
+    </div>
+    <div class="field">
+      <label for="r-start">Start date</label>
+      <input type="date" id="r-start" name="start_date" value="{{ editing.start_date if editing and editing.start_date else '' }}">
+    </div>
+    <div class="field">
+      <label for="r-end">End date (optional)</label>
+      <input type="date" id="r-end" name="end_date" value="{{ editing.end_date if editing and editing.end_date else '' }}">
+    </div>
+    <div class="field" style="grid-column: 1 / -1">
+      <label for="r-note">Note</label>
+      <input type="text" id="r-note" name="note" value="{{ editing.note if editing else '' }}">
+    </div>
+    <div class="field check" style="grid-column: 1 / -1">
+      <label class="inline"><input type="checkbox" name="active" {% if not editing or editing.active %}checked{% endif %}> Active</label>
+    </div>
+  </div>
+  <div class="filter-actions">
+    <button type="submit">{% if editing %}Save changes{% else %}Add recurring{% endif %}</button>
+    {% if editing %}<a class="btn-link" href="/settings/recurring">Cancel</a>{% endif %}
+  </div>
+</form>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  const freq = document.getElementById('r-frequency');
+  const moy = document.getElementById('moy-field');
+  function sync() { moy.style.display = (freq.value === 'yearly') ? '' : 'none'; }
+  freq.addEventListener('change', sync);
+  sync();
+})();
+</script>
+{% endblock %}

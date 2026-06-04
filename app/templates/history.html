@@ -1,0 +1,115 @@
+{% extends "base.html" %}
+{% block title %}{{ app_name }} — History{% endblock %}
+{% block main_class %}dash{% endblock %}
+{% block content %}
+<div class="dash-head">
+  <h1>History</h1>
+  <span class="pill">{{ total }} transactions</span>
+</div>
+
+<form class="filters card" method="get" action="/history">
+  <div class="filter-grid">
+    <div class="field">
+      <label for="f-q">Search note / id</label>
+      <input type="text" id="f-q" name="q" value="{{ f_q }}" placeholder="e.g. grab, kfc, T2026…">
+    </div>
+    <div class="field">
+      <label for="f-account">Account</label>
+      <select id="f-account" name="account">
+        <option value="">All accounts</option>
+        {% for a in accounts %}<option value="{{ a.account_id }}" {% if a.account_id == f_account %}selected{% endif %}>{{ a.name }}</option>{% endfor %}
+      </select>
+    </div>
+    <div class="field">
+      <label for="f-category">Category</label>
+      <select id="f-category" name="category">
+        <option value="">All categories</option>
+        {% for c in categories %}<option value="{{ c.name }}" {% if c.name == f_category %}selected{% endif %}>{{ c.name }}</option>{% endfor %}
+      </select>
+    </div>
+    <div class="field">
+      <label for="f-flow">Flow</label>
+      <select id="f-flow" name="flow">
+        <option value="">All</option>
+        {% for fl in ['expense', 'income', 'transfer'] %}<option value="{{ fl }}" {% if fl == f_flow %}selected{% endif %}>{{ fl }}</option>{% endfor %}
+      </select>
+    </div>
+    <div class="field">
+      <label for="f-from">From date</label>
+      <input type="date" id="f-from" name="date_from" value="{{ f_date_from }}">
+    </div>
+    <div class="field">
+      <label for="f-to">To date</label>
+      <input type="date" id="f-to" name="date_to" value="{{ f_date_to }}">
+    </div>
+    <div class="field">
+      <label for="f-per">Per page</label>
+      <select id="f-per" name="per_page">
+        {% for n in [25, 50, 100] %}<option value="{{ n }}" {% if n == per_page %}selected{% endif %}>{{ n }}</option>{% endfor %}
+      </select>
+    </div>
+  </div>
+  <div class="filter-actions">
+    <button type="submit">Apply filters</button>
+    {% if has_filters %}<a class="btn-link" href="/history">Clear</a>{% endif %}
+  </div>
+</form>
+
+<div class="card">
+  <table>
+    <thead>
+      <tr><th>Date</th><th>Account</th><th>Category</th><th class="num">Amount</th><th>Note</th></tr>
+    </thead>
+    <tbody>
+    {% for t in txns %}
+      <tr>
+        <td class="muted nowrap">{{ t.txn_date }}</td>
+        <td>{{ t.account_name }}<br><small class="muted">{{ t.account_id }}</small></td>
+        <td>{{ t.category }}{% if t.source != 'manual' %}<span class="tag">{{ t.source }}</span>{% endif %}</td>
+        <td class="num{% if t.flow != 'expense' %} pos{% endif %}">{{ t.amount | money }} <span class="muted">{{ t.currency }}</span></td>
+        <td class="muted">{{ t.note }}</td>
+      </tr>
+    {% else %}
+      <tr><td colspan="5" class="muted">No transactions match these filters.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div class="pager">
+  <div class="pager-info">
+    {% if total %}Showing <b>{{ shown_from }}–{{ shown_to }}</b> of <b>{{ total }}</b>{% else %}No results{% endif %}
+  </div>
+  <div class="pager-nav">
+    {% if page > 1 %}
+      <a class="pg" href="/history?page={{ page - 1 }}{% if base_qs %}&{{ base_qs }}{% endif %}">‹ Prev</a>
+    {% else %}<span class="pg disabled">‹ Prev</span>{% endif %}
+    <span class="pg-cur">Page {{ page }} / {{ pages }}</span>
+    {% if page < pages %}
+      <a class="pg" href="/history?page={{ page + 1 }}{% if base_qs %}&{{ base_qs }}{% endif %}">Next ›</a>
+    {% else %}<span class="pg disabled">Next ›</span>{% endif %}
+  </div>
+</div>
+
+<h2>Balance history <span class="muted" style="font-size:.72rem; text-transform:none; letter-spacing:0">net worth by snapshot date</span></h2>
+<div class="card">
+  <table>
+    <thead>
+      <tr><th>Date</th><th class="num">Net SGD</th><th class="num">Net MYR</th><th class="num">Combined SGD</th></tr>
+    </thead>
+    <tbody>
+    {% for h in balance_history %}
+      <tr>
+        <td class="muted nowrap">{{ h.snap_date }}</td>
+        <td class="num">{{ h.net_sgd | money }}</td>
+        <td class="num">{{ h.net_myr | money }}</td>
+        <td class="num">{{ h.combined | money }}</td>
+      </tr>
+    {% else %}
+      <tr><td colspan="4" class="muted">No balance snapshots yet.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+<p class="note">Net worth carries each account's latest balance forward to each date (FX {{ fx_rate }}).</p>
+{% endblock %}
