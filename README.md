@@ -62,9 +62,29 @@ from the dashboard. On success they refresh so the dashboard/history update.
 | `POST /api/parse` | `{text}` → `{amount,currency,category,account,note}`; OpenAI-compatible LLM with regex fallback, never 5xx. Auto-detects currency from the text (symbols/codes/words; SGD default) |
 | `GET /api/dashboard` | JSON of all dashboard metrics (SGD-equivalent) |
 | `GET /api/fx` | Current FX rates (`to_sgd` per currency) + supported currency list |
+| `GET /api/reference` | Live `accounts` + `categories` + `currencies` (valid values for writes; for agents) |
+| `GET /api/transactions` | Filtered txn list for any date range + `expense_total_sgd` (`date_from`/`date_to`/`account`/`category`/`flow`/`q`/`limit`); per-day spend, since the dashboard is MTD-only |
 | `POST /api/jobs/{name}` | Manually trigger `recurring_poster` / `monthly_rollover` / `weekly_digest` / `fx_update` (ops/smoke) |
 
 (Old `/fx` and `/recurring` redirect to their `/settings/...` homes.)
+
+## Agent / MCP access
+
+The same JSON API doubles as an integration surface for external AI agents:
+
+- **Auth:** set `API_KEY` in `.env`, then send `Authorization: Bearer <key>` (or
+  `X-API-Key: <key>`) on `/api/*` — no browser cookie needed. See **Security** below.
+- **MCP server:** [`tally_mcp/`](tally_mcp/) wraps the endpoints as MCP tools
+  (`get_dashboard`, `list_reference`, `log_transaction`, `log_from_text`, `set_balance`,
+  `parse_expense`, `get_fx_rates`) for Claude Desktop / Claude Code / any MCP host.
+- **Semantic layer:** [`SEMANTIC_LAYER.md`](SEMANTIC_LAYER.md) is the domain context an
+  agent should read first — stocks vs flows, liquid cash, burn, FX, the write contracts,
+  and guardrails.
+
+```bash
+# smoke-test the API key
+curl -H "Authorization: Bearer $API_KEY" http://localhost:8000/api/reference
+```
 
 ## Scheduled jobs (Asia/Singapore)
 
@@ -191,6 +211,11 @@ tailscale serve https / http://localhost:8000
   session cookie is HMAC-signed with `SECRET_KEY` (HttpOnly, SameSite=Lax, 30-day). Sign
   out via the topbar **Sign out** link. Changing the password or `SECRET_KEY` invalidates
   existing sessions.
+- **API key** (programmatic access). Set `API_KEY` in env to let non-browser clients
+  (external AI agents, the [MCP server](tally_mcp/), scripts) reach `/api/*` without the
+  login cookie — send it as `Authorization: Bearer <key>` or `X-API-Key: <key>`. Compared
+  with constant-time HMAC. Blank `API_KEY` disables the bypass (cookie only). Browser pages
+  still require the login cookie regardless.
 - No public exposure (Serve, not Funnel). The tailnet is still the primary boundary; the
   login is a second layer.
 - All SQL is parameterized (psycopg placeholders); no string interpolation into queries.
