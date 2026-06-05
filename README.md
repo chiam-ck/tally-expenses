@@ -83,14 +83,17 @@ The same JSON API doubles as an integration surface for external AI agents:
 - **Auth:** set `API_KEY` in `.env`, then send `Authorization: Bearer <key>` (or
   `X-API-Key: <key>`) on `/api/*` — no browser cookie needed. See **Security** below.
 - **MCP server:** [`tally_mcp/`](tally_mcp/) wraps the endpoints as MCP tools
-  (`get_dashboard`, `list_reference`, `log_transaction`, `log_from_text`, `set_balance`,
-  `parse_expense`, `get_fx_rates`) for Claude Desktop / Claude Code / any MCP host.
+  (`get_dashboard`, `list_reference`, `list_transactions`, `get_fx_rates`, `parse_expense`,
+  `log_transaction`, `log_from_text`, `set_balance`) for Claude Desktop / Claude Code / any
+  MCP host. It runs as the `mcp` compose service (Streamable HTTP on `:9000/mcp`), guarded
+  by `MCP_AUTH_TOKEN` — agents connect with `Authorization: Bearer <token>` and the sidecar
+  reaches the app with `API_KEY` internally. See `tally_mcp/README.md` for client config.
 - **Semantic layer:** [`SEMANTIC_LAYER.md`](SEMANTIC_LAYER.md) is the domain context an
   agent should read first — stocks vs flows, liquid cash, burn, FX, the write contracts,
   and guardrails.
 
 ```bash
-# smoke-test the API key
+# smoke-test the API key (app)
 curl -H "Authorization: Bearer $API_KEY" http://localhost:8000/api/reference
 ```
 
@@ -224,8 +227,14 @@ tailscale serve https / http://localhost:8000
   login cookie — send it as `Authorization: Bearer <key>` or `X-API-Key: <key>`. Compared
   with constant-time HMAC. Blank `API_KEY` disables the bypass (cookie only). Browser pages
   still require the login cookie regardless.
+- **MCP endpoint token** (agent surface). The optional `mcp` sidecar exposes the API as MCP
+  tools on its own port (`:9000`). It authenticates to the app with `API_KEY` *internally*,
+  and the endpoint itself is guarded by `MCP_AUTH_TOKEN` (Bearer), checked before any MCP
+  traffic — so agents hold the MCP token and never see the API key. Two distinct secrets;
+  rotate either via `.env` + `docker compose up -d`. Blank `MCP_AUTH_TOKEN` leaves the
+  endpoint open (tailnet-only). Like the app, the sidecar is never Funnel-exposed.
 - No public exposure (Serve, not Funnel). The tailnet is still the primary boundary; the
-  login is a second layer.
+  login / API key / MCP token are layers on top.
 - All SQL is parameterized (psycopg placeholders); no string interpolation into queries.
 - `account_id` and `category` are validated against the DB on every write; unknown values
   are rejected with 400.
