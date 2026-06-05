@@ -1,0 +1,1 @@
+"""Tally MCP server package."""

@@ -1,0 +1,19 @@
+# Tally MCP server — a thin Streamable-HTTP MCP front for the Tally JSON API.
+# Separate image from the app: it only needs `mcp` + `httpx`, not the web stack.
+# Reaches the app over the host network (network_mode: host) at localhost:8000.
+FROM python:3.12-slim
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    TZ=Asia/Singapore
+
+WORKDIR /srv
+
+COPY tally_mcp/requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY tally_mcp ./tally_mcp
+
+EXPOSE 9000
+
+CMD ["python", "-m", "tally_mcp.server"]
