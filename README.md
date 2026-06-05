@@ -31,15 +31,23 @@ all date logic. Money is `numeric(14,2)`, formatted to 2 dp.
 
 ```
 app/
-  main.py        FastAPI app, routes, lifespan (opens pool, starts scheduler)
+  main.py        FastAPI app, routes, auth middleware, lifespan (pool + scheduler)
+  auth.py        single-user login cookie + API_KEY gate for /api/*
   db.py          connection pool + query helpers (normalizes the DSN)
   queries.py     all SQL + dashboard metric computation
-  jobs.py        recurring poster, monthly rollover, weekly digest
+  jobs.py        recurring poster, monthly rollover, weekly digest, FX update
+  fx.py          currency list, live FX fetch, NL currency detection
   llm.py         LLM parse (any OpenAI-compatible endpoint) + regex fallback
-  templates/     base, dashboard, balance, log
+  charts.py      dependency-free server-rendered SVG (line/donut/bar)
+  templates/     base, dashboard, history, settings, login + Balance/Log modals
   static/        style.css (dark theme)
+tally_mcp/       optional MCP sidecar for AI agents (Dockerfile.mcp → mcp service)
 schema.sql  seed.sql  requirements.txt  Dockerfile  docker-compose.yml  .env.example
 ```
+
+**Docs:** [`ARCHITECTURE.md`](ARCHITECTURE.md) — system design, components, request
+flows, trust boundaries · [`SEMANTIC_LAYER.md`](SEMANTIC_LAYER.md) — domain model for
+AI agents · [`SPEC.md`](SPEC.md) — original product spec.
 
 ## Pages & API
 
