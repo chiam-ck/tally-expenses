@@ -78,6 +78,9 @@ async def require_auth(request: Request, call_next):
     if path in _PUBLIC_PATHS or path.startswith("/static/") or auth.is_authed(request):
         return await call_next(request)
     if path.startswith("/api/"):
+        # Programmatic clients (external agents) authenticate with the API key.
+        if auth.is_api_authed(request):
+            return await call_next(request)
         return JSONResponse({"detail": "unauthorized"}, status_code=401)
     return RedirectResponse(url=f"/login?next={quote(path)}", status_code=303)
 
@@ -497,6 +500,70 @@ def api_fx():
     return JSONResponse(_jsonable({
         "rates": queries.fx_rates_detail(),
         "currencies": fx.CURRENCIES,
+    }))
+
+
+@app.get("/api/reference")
+def api_reference():
+    """Valid enumerations for building a transaction/balance: the live account
+    list, category list, and supported currencies. Agents should read this
+    rather than hard-coding ids, since accounts/categories are user-editable."""
+    return JSONResponse(_jsonable({
+        "accounts": queries.accounts(),
+        "categories": queries.categories(),
+        "currencies": fx.CURRENCIES,
+    }))
+
+
+@app.get("/api/transactions")
+def api_transactions(
+    date_from: str = "",
+    date_to: str = "",
+    account: str = "",
+    category: str = "",
+    flow: str = "",
+    q: str = "",
+    limit: int = 100,
+):
+    """Filtered transaction list + an SGD-equivalent expense total. Pass the same
+    date in date_from and date_to for a single day (e.g. today's spend). All
+    filters optional; dates are YYYY-MM-DD. Each row carries amount_sgd, and
+    expense_total_sgd sums *all* matching expenses (not just the returned page)."""
+    def _valid_date(value: str, field: str) -> str | None:
+        value = value.strip()
+        if not value:
+            return None
+        try:
+            datetime.strptime(value, "%Y-%m-%d")
+        except ValueError:
+            raise HTTPException(status_code=400, detail=f"{field} must be YYYY-MM-DD")
+        return value
+
+    filters = {
+        "account": account.strip() or None,
+        "category": category.strip() or None,
+        "flow": flow.strip() or None,
+        "date_from": _valid_date(date_from, "date_from"),
+        "date_to": _valid_date(date_to, "date_to"),
+        "q": q.strip() or None,
+    }
+    limit = min(max(limit, 1), 500)
+
+    count = queries.count_filtered_transactions(filters)
+    rows = queries.filtered_transactions(filters, limit, 0)
+    rates = queries.get_fx_rates()
+    txns = []
+    for r in rows:
+        r = dict(r)
+        r["amount_sgd"] = queries.to_sgd(r["amount"], r["currency"], rates)
+        txns.append(r)
+
+    return JSONResponse(_jsonable({
+        "filters": filters,
+        "count": count,
+        "returned": len(txns),
+        "expense_total_sgd": queries.filtered_expense_total_sgd(filters),
+        "transactions": txns,
     }))
 
 

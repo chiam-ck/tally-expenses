@@ -14,6 +14,10 @@ AUTH_USER = os.environ.get("AUTH_USERNAME", "admin")
 AUTH_PASS = os.environ.get("AUTH_PASSWORD", "change-me")
 SECRET = os.environ.get("SECRET_KEY", "change-me-to-a-long-random-string").encode()
 
+# Static bearer token for programmatic/agent access to /api/* (no browser cookie).
+# Blank disables it — only the session cookie works then.
+API_KEY = os.environ.get("API_KEY", "").strip()
+
 COOKIE_NAME = "expenses_auth"
 MAX_AGE = 60 * 60 * 24 * 30  # 30 days
 
@@ -34,6 +38,20 @@ def verify_credentials(username: str | None, password: str | None) -> bool:
 
 def is_authed(request) -> bool:
     return hmac.compare_digest(request.cookies.get(COOKIE_NAME, ""), TOKEN)
+
+
+def is_api_authed(request) -> bool:
+    """True if the request carries the API key as a Bearer token or X-API-Key
+    header. Always False when API_KEY is unset, so the gate can't be bypassed
+    with an empty header."""
+    if not API_KEY:
+        return False
+    presented = request.headers.get("x-api-key", "")
+    if not presented:
+        auth = request.headers.get("authorization", "")
+        if auth.lower().startswith("bearer "):
+            presented = auth[7:].strip()
+    return bool(presented) and hmac.compare_digest(presented, API_KEY)
 
 
 def set_cookie(response) -> None:

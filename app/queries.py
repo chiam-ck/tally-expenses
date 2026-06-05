@@ -447,6 +447,24 @@ def count_filtered_transactions(f: dict) -> int:
     return int(row["c"]) if row else 0
 
 
+def filtered_expense_total_sgd(f: dict) -> Decimal:
+    """SGD-equivalent sum of the *expense* rows matching the filter — over the
+    whole match, not just one page. Other flows (income/transfer) are excluded
+    so the figure is comparable to the dashboard's spend totals."""
+    where, params = _txn_where(f)
+    clause = (where + " AND t.flow = 'expense'") if where else "WHERE t.flow = 'expense'"
+    row = db.query_one(
+        f"""
+        SELECT COALESCE(SUM(t.amount * COALESCE(fx.to_sgd, 1)), 0) AS total
+        FROM transactions t
+        LEFT JOIN fx_rates fx ON fx.currency = t.currency
+        {clause}
+        """,
+        params,
+    )
+    return d2(row["total"]) if row else Decimal("0.00")
+
+
 def balance_history() -> list[dict]:
     """Liquid cash as of each snapshot date (carry-forward latest balance per
     account on or before that date), so a day with a partial capture still
