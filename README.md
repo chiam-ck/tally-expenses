@@ -256,4 +256,4 @@ tailscale serve https / http://localhost:8000
 
 ## License
 
-[MIT](LICENSE) © 2026 samurai-bot
+[MIT](LICENSE) © 2026 Ck Chiam
