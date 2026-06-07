@@ -232,7 +232,16 @@ def page_history(
     pages = max(1, math.ceil(total / per_page))
     page = min(max(page, 1), pages)
     offset = (page - 1) * per_page
-    txns = queries.filtered_transactions(filters, per_page, offset)
+    txns = [dict(t) for t in queries.filtered_transactions(filters, per_page, offset)]
+    # Attach a current-FX SGD estimate to each foreign-currency row so the list
+    # is readable at a glance. It's converted at *today's* rate, not the rate when
+    # the money was spent, so it's an estimate — flagged as such in the template.
+    rates = queries.get_fx_rates()
+    has_fx = False
+    for t in txns:
+        if t["currency"] != "SGD":
+            t["amount_sgd"] = queries.to_sgd(t["amount"], t["currency"], rates)
+            has_fx = True
 
     # querystring of active filters (minus page) so pager links keep the filters
     keep = {k: v for k, v in {
@@ -256,6 +265,7 @@ def page_history(
             f_account=account, f_category=category, f_flow=flow,
             f_date_from=date_from, f_date_to=date_to, f_q=q,
             has_filters=any(filters.values()),
+            has_fx=has_fx,
             # pagination
             page=page, pages=pages, per_page=per_page, total=total,
             shown_from=(offset + 1 if total else 0),
