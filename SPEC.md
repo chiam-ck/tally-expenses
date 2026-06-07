@@ -1,7 +1,7 @@
 # Expenses Tracker — Build Spec (for Claude Code)
 
 A self-hosted personal expenses tracker. Replaces a Google Sheet + n8n webhooks with one
-private FastAPI service. The **app runs on `agentic-vm`**; **Postgres runs on `tech-vm`** and is
+private FastAPI service. The **app runs on `app-host`**; **Postgres runs on `db-host`** and is
 reached across the tailnet. Reachable only over Tailscale.
 
 Implement exactly to this spec. `schema.sql` and `seed.sql` (same folder) are authoritative for the
@@ -11,12 +11,12 @@ data model and starting data — load them as-is; do not redesign the schema.
 
 ## 1. Goals & non-goals
 
-- One service on **agentic-vm**: serves the UI (dashboard + two forms), exposes a small JSON API,
+- One service on **app-host**: serves the UI (dashboard + two forms), exposes a small JSON API,
   runs scheduled jobs.
-- Backed by the user's **existing Postgres on `tech-vm`**, reached over the tailnet via `DATABASE_URL`
-  (host = tech-vm's tailnet name/IP, e.g. `tech-vm.<tailnet>.ts.net` or its `100.x` address).
-- **Private**: lives entirely inside the tailnet. The app binds a port on agentic-vm and is reached at
-  agentic-vm's tailnet address; no public exposure (never Funnel), no login screen. `tailscale serve`
+- Backed by the user's **existing Postgres on `db-host`**, reached over the tailnet via `DATABASE_URL`
+  (host = db-host's tailnet name/IP, e.g. `db-host.<tailnet>.ts.net` or its `100.x` address).
+- **Private**: lives entirely inside the tailnet. The app binds a port on app-host and is reached at
+  app-host's tailnet address; no public exposure (never Funnel), no login screen. `tailscale serve`
   is optional (only for HTTPS + a clean hostname).
 - No Google Sheets, no n8n. This fully replaces them.
 - Non-goals: multi-user, mobile-native apps, bank API integration (no SG bank API exists).
@@ -165,8 +165,8 @@ discretionary), Total / Days elapsed / Avg daily burn / Projected month. Links t
 ## 9. Config / env (`.env`)
 
 ```
-# Postgres lives on tech-vm; reach it over the tailnet (NOT localhost)
-DATABASE_URL=postgresql://user:pass@tech-vm.<tailnet>.ts.net:5432/expenses
+# Postgres lives on db-host; reach it over the tailnet (NOT localhost)
+DATABASE_URL=postgresql://user:pass@db-host.<tailnet>.ts.net:5432/expenses
 TZ=Asia/Singapore
 LITELLM_URL=http://litellm-host:4000/v1/chat/completions
 LITELLM_KEY=sk-...
@@ -193,26 +193,26 @@ All jobs must be safe to run repeatedly (idempotent) and on an empty/partial mon
 
 ## 11. Deployment
 
-Topology: **app on agentic-vm → Postgres on tech-vm**, both on the tailnet.
+Topology: **app on app-host → Postgres on db-host**, both on the tailnet.
 
-Prerequisite (on tech-vm Postgres): allow connections from agentic-vm — `listen_addresses` includes
-the tailscale interface, and a `pg_hba.conf` line permitting agentic-vm's tailnet IP (or the
+Prerequisite (on db-host Postgres): allow connections from app-host — `listen_addresses` includes
+the tailscale interface, and a `pg_hba.conf` line permitting app-host's tailnet IP (or the
 `100.64.0.0/10` CGNAT range) to the `expenses` DB. Create the DB/role first.
 
-- `docker-compose.yml` runs **only the app** on agentic-vm. It connects to Postgres via `DATABASE_URL`
-  pointing at tech-vm's tailnet host (do NOT use `localhost` / `host.docker.internal` — Postgres is on
+- `docker-compose.yml` runs **only the app** on app-host. It connects to Postgres via `DATABASE_URL`
+  pointing at db-host's tailnet host (do NOT use `localhost` / `host.docker.internal` — Postgres is on
   a different machine). The container needs tailnet reachability: simplest is `network_mode: host`
-  (agentic-vm is already on the tailnet), or otherwise ensure DNS/routing to `*.ts.net` from the
+  (app-host is already on the tailnet), or otherwise ensure DNS/routing to `*.ts.net` from the
   container.
-- Load schema + seed against tech-vm (run from agentic-vm):
+- Load schema + seed against db-host (run from app-host):
   `psql "$DATABASE_URL" -f schema.sql && psql "$DATABASE_URL" -f seed.sql`.
-- `docker compose up -d` on agentic-vm. Bind the app to `0.0.0.0:8000` so it's reachable on the
+- `docker compose up -d` on app-host. Bind the app to `0.0.0.0:8000` so it's reachable on the
   tailnet interface.
-- Access: it's already private to the tailnet — open `http://agentic-vm.<tailnet>.ts.net:8000/` (or the
+- Access: it's already private to the tailnet — open `http://app-host.<tailnet>.ts.net:8000/` (or the
   `100.x:8000` address) from any tailnet device. **Do NOT use `tailscale funnel`.** Optionally run
   `tailscale serve https / http://localhost:8000` for HTTPS + a port-less hostname — nice-to-have, not
   required.
-- README must include these steps + how to point a phone at it (open the agentic-vm URL, Add to Home
+- README must include these steps + how to point a phone at it (open the app-host URL, Add to Home
   Screen).
 
 ## 12. Security
@@ -235,7 +235,7 @@ the tailscale interface, and a `pg_hba.conf` line permitting agentic-vm's tailne
 5. Avg daily burn uses only discretionary categories; Projected month = booked MTD + burn × remaining
    days (no fixed-cost explosion).
 6. Killing the LiteLLM endpoint still lets `/log` parse via regex and log successfully.
-7. App reachable from a tailnet device at agentic-vm's address; not reachable publicly (no Funnel).
+7. App reachable from a tailnet device at app-host's address; not reachable publicly (no Funnel).
 
 ## 14. Migration notes
 

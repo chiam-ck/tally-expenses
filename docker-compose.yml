@@ -1,5 +1,5 @@
-# App only. Postgres is external (on tech-vm), reached over the tailnet via DATABASE_URL.
-# network_mode: host lets the container resolve/reach *.ts.net through agentic-vm's
+# App only. Postgres is external (on db-host), reached over the tailnet via DATABASE_URL.
+# network_mode: host lets the container resolve/reach *.ts.net through app-host's
 # tailscale interface and binds uvicorn directly on 0.0.0.0:8000.
 services:
   app:
@@ -12,7 +12,7 @@ services:
     network_mode: host
     # With network_mode: host the container shares the host network namespace,
     # so uvicorn's --host 0.0.0.0 --port 8000 (from the Dockerfile CMD) is reachable
-    # at agentic-vm's tailnet address on :8000. No `ports:` mapping is used/needed.
+    # at app-host's tailnet address on :8000. No `ports:` mapping is used/needed.
 
   # Streamable-HTTP MCP front for external AI agents (e.g. Hermes) on the tailnet.
   # Talks to the app over the host network at localhost:8000 using the API key.

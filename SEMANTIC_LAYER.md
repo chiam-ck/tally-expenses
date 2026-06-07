@@ -86,7 +86,7 @@ the rate reflects controllable spending. "Liquid cash" was formerly labelled
 
 ## 5. API surface
 
-Base URL: the running app (e.g. `http://tech-vm:8000`). All `/api/*` routes
+Base URL: the running app (e.g. `http://app-host:8000`). All `/api/*` routes
 require auth — for an agent, send the API key as either header:
 
 ```

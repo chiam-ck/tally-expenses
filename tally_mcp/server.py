@@ -14,7 +14,7 @@ serves Streamable HTTP at http://<host>:<MCP_PORT>/mcp):
 
 Run as a local stdio server (MCP host spawns it as a subprocess — Claude Desktop):
 
-    TALLY_BASE_URL=http://agentic-vm:8000 \
+    TALLY_BASE_URL=http://app-host:8000 \
     TALLY_API_KEY=tally_sk_... \
     python -m tally_mcp.server
 

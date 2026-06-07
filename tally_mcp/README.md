@@ -36,7 +36,7 @@ pip install -r tally_mcp/requirements.txt
 ## Run
 
 ```bash
-TALLY_BASE_URL=http://tech-vm:8000 \
+TALLY_BASE_URL=http://app-host:8000 \
 TALLY_API_KEY=tally_sk_... \
 python -m tally_mcp.server
 ```
@@ -53,7 +53,7 @@ Add to `claude_desktop_config.json` (Settings → Developer → Edit Config):
       "args": ["-m", "tally_mcp.server"],
       "cwd": "/path/to/expenses-app",
       "env": {
-        "TALLY_BASE_URL": "http://tech-vm:8000",
+        "TALLY_BASE_URL": "http://app-host:8000",
         "TALLY_API_KEY": "tally_sk_..."
       }
     }
@@ -67,7 +67,7 @@ Add to `claude_desktop_config.json` (Settings → Developer → Edit Config):
 
 ```bash
 claude mcp add tally \
-  --env TALLY_BASE_URL=http://tech-vm:8000 \
+  --env TALLY_BASE_URL=http://app-host:8000 \
   --env TALLY_API_KEY=tally_sk_... \
   -- python -m tally_mcp.server
 ```

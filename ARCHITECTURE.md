@@ -29,7 +29,7 @@ are recorded independently and must never be derived from one another.
   │                           ▼                                                 │
   │                  ┌──────────────────┐   asyncpg/psycopg pool   ┌─────────┐  │
   │   AI agent ─────▶│  app (FastAPI)   │─────────────────────────▶│ Postgres │ │
-  │   (Hermes)       │  :8000  uvicorn  │                          │ tech-vm  │ │
+  │   (Hermes)       │  :8000  uvicorn  │                          │ db-host  │ │
   │      │  API key  └──────────────────┘                          └─────────┘  │
   │      │           ▲     │      │                                              │
   │      │ MCP token │     │      └──httpx──▶ FX source (open.er-api.com, keyless)
@@ -47,7 +47,7 @@ are recorded independently and must never be derived from one another.
   component that talks to Postgres.
 - **mcp** — optional sidecar that re-exposes the JSON API as MCP tools for agents.
   It is a *client* of the app, not of the database.
-- **Postgres** — runs on a separate host (`tech-vm`), reached over the tailnet via
+- **Postgres** — runs on a separate host (`db-host`), reached over the tailnet via
   `DATABASE_URL`. Holds all state.
 - **External services** (all optional, all outbound, all fail-soft): the keyless FX
   source, an OpenAI-compatible LLM endpoint for NL parsing, and Resend for the
@@ -112,14 +112,14 @@ on boot), weekly digest email. All run in a background thread inside the app pro
 ## 6. Deployment topology
 
 Two containers managed by `docker-compose.yml`, both on `network_mode: host` so they
-bind directly on the tailnet host (`agentic-vm`):
+bind directly on the tailnet host (`app-host`):
 
 | Service | Image | Port | Role |
 |---|---|---|---|
 | `app` | `Dockerfile` | `:8000` | FastAPI web app + scheduler |
 | `mcp` | `Dockerfile.mcp` | `:9000` | MCP sidecar (Streamable HTTP) |
 
-Postgres is **external** (on `tech-vm`), reached via `DATABASE_URL`. Secrets come from
+Postgres is **external** (on `db-host`), reached via `DATABASE_URL`. Secrets come from
 `.env` (gitignored): DB DSN, login credentials + cookie `SECRET_KEY`, `API_KEY`,
 `MCP_AUTH_TOKEN`, and the optional LLM / Resend keys. The app image is rebuilt to ship
 code changes (`docker compose up -d --build`) — a plain restart only reloads `.env`.

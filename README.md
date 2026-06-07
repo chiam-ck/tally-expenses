@@ -5,8 +5,8 @@
 > live FX, recurring charges, history with filters, and account settings — backed by your
 > own Postgres. A self-hosted alternative to a finance spreadsheet.
 
-**Topology:** the app runs on one host (`agentic-vm` in these docs) and reaches Postgres on
-another (`tech-vm`) over a Tailscale tailnet via `DATABASE_URL`. Designed to live entirely
+**Topology:** the app runs on one host (`app-host` in these docs) and reaches Postgres on
+another (`db-host`) over a Tailscale tailnet via `DATABASE_URL`. Designed to live entirely
 inside the tailnet (no public exposure) with a single-user login gate on top.
 
 > **Note:** `seed.sql` ships **dummy sample data**, not real finances. Replace it with your own.
@@ -147,12 +147,12 @@ blocks on the LLM. Leave `LITELLM_KEY` blank to skip the LLM entirely (regex onl
 
 ## Deploy
 
-### 0. Prerequisite — Postgres on tech-vm
+### 0. Prerequisite — Postgres on db-host
 
-Create the DB/role and allow connections from agentic-vm over the tailnet:
+Create the DB/role and allow connections from app-host over the tailnet:
 
 - `postgresql.conf`: `listen_addresses` includes the tailscale interface (or `*`).
-- `pg_hba.conf`: a line permitting agentic-vm's tailnet IP (or the `100.64.0.0/10`
+- `pg_hba.conf`: a line permitting app-host's tailnet IP (or the `100.64.0.0/10`
   CGNAT range) to the `expenses` DB.
 
 ```sql
@@ -160,18 +160,18 @@ CREATE ROLE expenses LOGIN PASSWORD 'choose-a-strong-password';
 CREATE DATABASE expenses OWNER expenses;
 ```
 
-### 1. Configure env (on agentic-vm)
+### 1. Configure env (on app-host)
 
 ```bash
 cp .env.example .env
-# edit .env: set DATABASE_URL to tech-vm's tailnet host, LITELLM_*, RESEND_*
+# edit .env: set DATABASE_URL to db-host's tailnet host, LITELLM_*, RESEND_*
 ```
 
-`DATABASE_URL` must point at **tech-vm's tailnet host** (e.g.
-`tech-vm.<tailnet>.ts.net:5432` or its `100.x` address) — never `localhost` /
+`DATABASE_URL` must point at **db-host's tailnet host** (e.g.
+`db-host.<tailnet>.ts.net:5432` or its `100.x` address) — never `localhost` /
 `host.docker.internal` (Postgres is on a different machine).
 
-### 2. Load schema + seed against tech-vm (run from agentic-vm)
+### 2. Load schema + seed against db-host (run from app-host)
 
 ```bash
 psql "$DATABASE_URL" -f schema.sql && psql "$DATABASE_URL" -f seed.sql
@@ -180,14 +180,14 @@ psql "$DATABASE_URL" -f schema.sql && psql "$DATABASE_URL" -f seed.sql
 (If your `DATABASE_URL` carries a `+asyncpg` driver suffix for the app, strip it for
 `psql`: use a plain `postgresql://...` DSN here.)
 
-### 3. Run the app (on agentic-vm)
+### 3. Run the app (on app-host)
 
 ```bash
 docker compose up -d --build
 ```
 
 `docker-compose.yml` runs **only the app** and uses `network_mode: host` so the container
-reaches `*.ts.net` through agentic-vm's tailscale interface. Uvicorn binds
+reaches `*.ts.net` through app-host's tailscale interface. Uvicorn binds
 `0.0.0.0:8000`.
 
 ```bash
@@ -199,19 +199,19 @@ docker compose logs -f app     # watch startup; confirms scheduler jobs register
 Open from any tailnet device — **do NOT use `tailscale funnel`**:
 
 ```
-http://agentic-vm.<tailnet>.ts.net:8000/
+http://app-host.<tailnet>.ts.net:8000/
 # or the host's 100.x tailnet address:
 http://100.x.y.z:8000/
 ```
 
 **Point a phone at it:** connect the phone to the tailnet (Tailscale app), open the
-agentic-vm URL above, then **Share → Add to Home Screen** for an app-like icon.
+app-host URL above, then **Share → Add to Home Screen** for an app-like icon.
 
 **Optional HTTPS + clean hostname** (nice-to-have, not required):
 
 ```bash
 tailscale serve https / http://localhost:8000
-# → https://agentic-vm.<tailnet>.ts.net/   (still tailnet-only; never `funnel`)
+# → https://app-host.<tailnet>.ts.net/   (still tailnet-only; never `funnel`)
 ```
 
 ## Security
@@ -252,7 +252,7 @@ tailscale serve https / http://localhost:8000
 5. Avg daily burn uses discretionary categories only; projection = booked MTD + burn ×
    remaining days.
 6. With the LLM endpoint down, `/log` still parses (regex) and logs.
-7. Reachable from a tailnet device at agentic-vm's address; not reachable publicly.
+7. Reachable from a tailnet device at app-host's address; not reachable publicly.
 
 ## License
 
