@@ -192,6 +192,16 @@ def log_from_text(text: str, confirm: bool = True) -> dict:
 
 
 @mcp.tool()
+def delete_transaction(txn_id: str) -> dict:
+    """Delete a transaction by its txn_id — use this to UNDO a mistaken log (e.g.
+    you logged the wrong account or a duplicate) instead of leaving a double
+    entry. Get the txn_id from log_transaction's return, log_from_text's result,
+    or list_transactions. Returns {ok, deleted} or an error if it doesn't exist.
+    Deleting a flow never affects balance snapshots (they're recorded separately)."""
+    return _request("DELETE", f"/api/txn/{txn_id}")
+
+
+@mcp.tool()
 def set_balance(
     account_id: str,
     balance: float,

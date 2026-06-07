@@ -57,6 +57,25 @@ a { color: var(--accent); text-decoration: none; }
 .logout { color: var(--muted); font-size: .82rem; padding: 6px 4px; }
 .logout:hover { color: var(--bad); }
 
+/* Prominent dashboard action row (primary actions, out of the menu). */
+.quick-actions { display: flex; gap: 10px; margin: 0 0 18px; }
+.qa { margin: 0; padding: 15px 16px; font-size: 1rem; font-weight: 700; border-radius: 12px; }
+.qa-log { flex: 1 1 58%; background: var(--accent); border-color: var(--accent); color: #fff; }
+.qa-balance { flex: 1 1 42%; background: transparent; border: 1px solid var(--border); color: var(--text); }
+.qa-balance:hover { border-color: var(--accent); }
+
+/* Floating quick-log button (non-dashboard pages). */
+.fab {
+  position: fixed; z-index: 20; width: auto;
+  right: max(18px, env(safe-area-inset-right));
+  bottom: calc(20px + env(safe-area-inset-bottom));
+  width: 58px; height: 58px; padding: 0; margin: 0;
+  font-size: 1.7rem; font-weight: 400; line-height: 1;
+  border-radius: 50%; background: var(--accent); border-color: var(--accent); color: #fff;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+}
+.fab:hover { filter: brightness(1.08); }
+
 .login-brand {
   text-align: center; font-weight: 800; font-size: 1.8rem; letter-spacing: -.01em;
   margin-bottom: 4px;
@@ -104,6 +123,45 @@ tr:last-child td { border-bottom: none; }
 .tag { display: inline-block; font-size: .68rem; padding: 1px 7px; border-radius: 999px; border: 1px solid var(--border); color: var(--muted); margin-left: 6px; }
 .tag.disc { color: var(--accent); border-color: var(--accent); }
 .neg { color: var(--bad); }
+
+/* inline row delete (History) */
+.inline-del { margin: 0; width: auto; }
+.del-btn {
+  width: 34px; height: 34px; padding: 0; margin: 0;
+  line-height: 1; font-size: .9rem;
+  background: transparent; border: 1px solid var(--border); color: var(--muted);
+  border-radius: 8px;
+}
+.del-btn:hover, .del-btn:focus { color: #fff; background: var(--bad); border-color: var(--bad); }
+
+/* Transaction list (History): reflows cleanly on mobile instead of a wide table. */
+.txn-list { list-style: none; margin: 0; padding: 0; }
+.txn {
+  display: flex; align-items: flex-start; gap: 10px;
+  padding: 12px 2px; border-bottom: 1px solid var(--border);
+}
+.txn:last-child { border-bottom: none; }
+.txn-info { flex: 1 1 auto; min-width: 0; }
+.txn-top { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.txn-cat { font-weight: 600; }
+.txn-amt { font-variant-numeric: tabular-nums; font-weight: 600; white-space: nowrap; }
+.txn-amt.pos { color: var(--good, #4ade80); }
+.txn-meta { font-size: .8rem; margin-top: 3px; }
+.txn-meta small { opacity: .8; }
+.txn-note { font-size: .86rem; color: var(--text); opacity: .85; margin-top: 4px; word-break: break-word; }
+.txn .inline-del { align-self: center; }
+
+/* Collapsible filters: tucked away so the list is what you see first. */
+.filters-wrap { padding: 0; }
+.filters-wrap > summary {
+  list-style: none; cursor: pointer; user-select: none;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 16px; font-weight: 600;
+}
+.filters-wrap > summary::-webkit-details-marker { display: none; }
+.filters-wrap > summary::after { content: "▾"; color: var(--muted); transition: transform .15s; }
+.filters-wrap[open] > summary::after { transform: rotate(180deg); }
+.filters-wrap .filters { padding: 0 16px 16px; }
 
 /* stat grid (dashboard footer): 2-up on mobile, flows to 4-up on desktop */
 .stats { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }

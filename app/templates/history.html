@@ -7,7 +7,12 @@
   <span class="pill">{{ total }} transactions</span>
 </div>
 
-<form class="filters card" method="get" action="/history">
+<details class="filters-wrap card"{% if has_filters %} open{% endif %}>
+  <summary>
+    <span>Filters{% if has_filters %} <span class="pill">on</span>{% endif %}</span>
+    {% if has_filters %}<a class="btn-link" href="/history">Clear</a>{% endif %}
+  </summary>
+<form class="filters" method="get" action="/history">
   <div class="filter-grid">
     <div class="field">
       <label for="f-q">Search note / id</label>
@@ -54,26 +59,31 @@
     {% if has_filters %}<a class="btn-link" href="/history">Clear</a>{% endif %}
   </div>
 </form>
+</details>
 
+{% set back_url = "/history?page=" ~ page ~ ("&" ~ base_qs if base_qs else "") %}
 <div class="card">
-  <table>
-    <thead>
-      <tr><th>Date</th><th>Account</th><th>Category</th><th class="num">Amount</th><th>Note</th></tr>
-    </thead>
-    <tbody>
+  <ul class="txn-list">
     {% for t in txns %}
-      <tr>
-        <td class="muted nowrap">{{ t.txn_date }}</td>
-        <td>{{ t.account_name }}<br><small class="muted">{{ t.account_id }}</small></td>
-        <td>{{ t.category }}{% if t.source != 'manual' %}<span class="tag">{{ t.source }}</span>{% endif %}</td>
-        <td class="num{% if t.flow != 'expense' %} pos{% endif %}">{{ t.amount | money }} <span class="muted">{{ t.currency }}</span></td>
-        <td class="muted">{{ t.note }}</td>
-      </tr>
+    <li class="txn">
+      <div class="txn-info">
+        <div class="txn-top">
+          <span class="txn-cat">{{ t.category }}{% if t.source != 'manual' %}<span class="tag">{{ t.source }}</span>{% endif %}</span>
+          <span class="txn-amt{% if t.flow != 'expense' %} pos{% endif %}">{{ t.amount | money }} <small class="muted">{{ t.currency }}</small></span>
+        </div>
+        <div class="txn-meta muted">{{ t.txn_date }} · {{ t.account_name }} <small>({{ t.account_id }})</small></div>
+        {% if t.note %}<div class="txn-note">{{ t.note }}</div>{% endif %}
+      </div>
+      <form method="post" action="/history/txn/{{ t.txn_id }}/delete" class="inline-del"
+            onsubmit="return confirm('Delete this transaction?\n\n{{ t.txn_date }} · {{ t.account_id }} · {{ t.category }} · {{ t.amount | money }} {{ t.currency }}');">
+        <input type="hidden" name="back" value="{{ back_url }}">
+        <button type="submit" class="del-btn" title="Delete transaction" aria-label="Delete transaction">✕</button>
+      </form>
+    </li>
     {% else %}
-      <tr><td colspan="5" class="muted">No transactions match these filters.</td></tr>
+    <li class="muted" style="padding:8px 2px">No transactions match these filters.</li>
     {% endfor %}
-    </tbody>
-  </table>
+  </ul>
 </div>
 
 <div class="pager">

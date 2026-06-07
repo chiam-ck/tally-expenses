@@ -268,6 +268,28 @@ def insert_transaction(
     )
 
 
+def get_transaction(txn_id: str) -> dict | None:
+    """A single transaction by id (with the account name), or None."""
+    return db.query_one(
+        """
+        SELECT t.txn_id, t.txn_date, t.account_id, a.name AS account_name,
+               t.flow, t.category, t.amount, t.currency, t.source, t.note
+        FROM transactions t
+        JOIN accounts a USING (account_id)
+        WHERE t.txn_id = %(id)s
+        """,
+        {"id": txn_id},
+    )
+
+
+def delete_transaction(txn_id: str) -> int:
+    """Hard-delete a transaction (flow row). Returns rowcount (0 if not found).
+    Balances are independent snapshots, so removing a flow never corrupts them."""
+    return db.execute(
+        "DELETE FROM transactions WHERE txn_id = %(id)s", {"id": txn_id}
+    )
+
+
 # ── dashboard metrics ───────────────────────────────────────────────────────
 
 def category_spend_rows(month_start: date, month_end: date) -> list[dict]:

@@ -16,14 +16,18 @@
       <a href="/">Dashboard</a>
       <a href="/history">History</a>
       <a href="/settings">Settings</a>
-      <button type="button" class="navbtn" data-modal-open="balance">Balance</button>
-      <button type="button" class="navbtn" data-modal-open="log">Log</button>
       <a href="/logout" class="logout" title="Sign out">Sign out</a>
     </nav>
   </header>
   <main class="{% block main_class %}{% endblock %}">
     {% block content %}{% endblock %}
   </main>
+
+  <!-- Floating quick-log button (every page except the dashboard, which has its
+       own prominent action row). One tap to log from anywhere. -->
+  {% block fab %}
+  <button type="button" class="fab" data-modal-open="log" aria-label="Log a transaction" title="Log a transaction">＋</button>
+  {% endblock %}
 
   <!-- In-screen modals (rendered on every page; their scripts wire up on load) -->
   <div class="modal-overlay" id="modal-balance" aria-hidden="true">

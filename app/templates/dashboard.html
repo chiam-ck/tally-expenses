@@ -1,11 +1,19 @@
 {% extends "base.html" %}
 {% block title %}{{ app_name }} — Dashboard{% endblock %}
 {% block main_class %}dash{% endblock %}
+{# Dashboard has its own prominent action row, so suppress the floating button. #}
+{% block fab %}{% endblock %}
 {% block content %}
 <div class="brand-hero">
   <div class="brand-wordmark">{{ app_name }}</div>
   <div class="brand-tagline">{{ app_tagline }}</div>
   <span class="pill brand-date">{{ m.today }}</span>
+</div>
+
+<!-- Primary actions: prominent, thumb-reachable, not buried in the menu. -->
+<div class="quick-actions">
+  <button type="button" class="qa qa-log" data-modal-open="log">＋ Log expense</button>
+  <button type="button" class="qa qa-balance" data-modal-open="balance">＄ Update balance</button>
 </div>
 
 <!-- HERO: liquid cash + trend -->
@@ -121,8 +129,6 @@
 </div>
 
 <div class="links">
-  <a href="#" data-modal-open="balance">Capture balance →</a>
-  <a href="#" data-modal-open="log">Log a transaction →</a>
   <a href="/history">Browse history →</a>
 </div>
 {% endblock %}

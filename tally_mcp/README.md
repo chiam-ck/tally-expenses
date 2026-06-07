@@ -16,6 +16,7 @@ browser login cookie, and it doesn't touch the database directly.
 | `parse_expense` | `POST /api/parse` | NL text → structured fields, **no write** |
 | `log_transaction` | `POST /api/txn` | Record a transaction (expense/income/transfer) |
 | `log_from_text` | parse → txn | One-shot NL logging (`confirm=False` to preview only) |
+| `delete_transaction` | `DELETE /api/txn/{id}` | Undo a mistaken log (remove a wrong/duplicate entry) |
 | `set_balance` | `POST /api/balance` | Upsert today's balance for one account |
 
 ## Install

@@ -106,6 +106,8 @@ auto-generated docs at `/docs` and the schema at `/openapi.json`.
 | `GET /api/fx` | FX `rates` (`to_sgd`) + supported `currencies` |
 | `GET /api/transactions` | Filtered transaction list for **any date range** + `expense_total_sgd`. Use for per-day / per-week spend (dashboard is month-to-date only) |
 
+(Write endpoints below also include `DELETE /api/txn/{txn_id}` to undo a log.)
+
 **`GET /api/transactions`** — query params (all optional): `date_from`, `date_to`
 (`YYYY-MM-DD`; pass the same date in both for a single day), `account`, `category`,
 `flow`, `q` (note/id substring), `limit` (default 100, max 500).
@@ -129,6 +131,14 @@ each row carries `amount_sgd`. "Today" = `date_from == date_to == dashboard.toda
 ```
 `currency` defaults to the account's currency. `account_id` and `category` must
 exist (validated server-side → 400 otherwise). `flow` defaults to `expense`.
+
+**`DELETE /api/txn/{txn_id}`** — delete one transaction by id. Use to **undo a
+mistaken log** (wrong account, duplicate) rather than leaving a double entry.
+```
+DELETE /api/txn/T20260607161528
+→ { "ok": true, "deleted": "T20260607161528" }   (404 if it doesn't exist)
+```
+Deleting a flow never touches balance snapshots — they're recorded separately.
 
 **`POST /api/balance`** — upsert today's snapshot for one or more accounts.
 ```json
@@ -173,5 +183,8 @@ both; `confirm=false` previews without writing.)
   are auto-posted by the recurring job — don't also log them manually.
 - **Idempotency:** there's no de-dupe on manual `/api/txn`; re-sending creates a
   second transaction. Track what you've already logged in a session.
+- **Undo mistakes, don't leave them.** If you log to the wrong account or create
+  a duplicate, call `DELETE /api/txn/{txn_id}` to remove the bad row — don't log
+  a correction on top of it. The `txn_id` comes back from every `/api/txn` write.
 - This is a **single-user, tailnet-private** app. The API key is the only thing
   gating programmatic access — treat it as a secret.

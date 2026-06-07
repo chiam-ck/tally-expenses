@@ -265,6 +265,18 @@ def page_history(
     )
 
 
+@app.post("/history/txn/{txn_id}/delete")
+async def history_txn_delete(request: Request, txn_id: str):
+    """Delete a transaction from the History page, then return to the same
+    filtered/paged view (the `back` field carries the current querystring)."""
+    queries.delete_transaction(txn_id)
+    form = await request.form()
+    back = form.get("back") or "/history"
+    if not back.startswith("/history"):  # avoid open redirect
+        back = "/history"
+    return RedirectResponse(url=back, status_code=303)
+
+
 # ── settings: shared ────────────────────────────────────────────────────────
 
 @app.get("/settings")
@@ -621,6 +633,17 @@ async def api_txn(request: Request):
         note=note,
     )
     return {"ok": True, "txn_id": txn_id}
+
+
+@app.delete("/api/txn/{txn_id}")
+def api_txn_delete(txn_id: str):
+    """Delete a single transaction by id — lets an agent undo a mistaken log
+    instead of leaving a double entry. Returns 404 if it doesn't exist."""
+    existing = queries.get_transaction(txn_id)
+    if not existing:
+        raise HTTPException(status_code=404, detail=f"unknown txn_id: {txn_id!r}")
+    queries.delete_transaction(txn_id)
+    return {"ok": True, "deleted": txn_id}
 
 
 @app.post("/api/parse")

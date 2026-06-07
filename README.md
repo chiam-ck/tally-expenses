@@ -67,6 +67,7 @@ from the dashboard. On success they refresh so the dashboard/history update.
 | `GET /log` | Redirects to `/?open=log` — opens the **Log** modal |
 | `POST /api/balance` | `{rows:[{account_id,balance,currency?}]}` → upsert today's snapshot → `{ok,rows}` |
 | `POST /api/txn` | `{account_id,category,amount,currency?,note?}` → append → `{ok,txn_id}` |
+| `DELETE /api/txn/{txn_id}` | Delete one transaction → `{ok,deleted}` (404 if missing); undo a mistaken/duplicate log |
 | `POST /api/parse` | `{text}` → `{amount,currency,category,account,note}`; OpenAI-compatible LLM with regex fallback, never 5xx. Auto-detects currency from the text (symbols/codes/words; SGD default) |
 | `GET /api/dashboard` | JSON of all dashboard metrics (SGD-equivalent) |
 | `GET /api/fx` | Current FX rates (`to_sgd` per currency) + supported currency list |
@@ -84,7 +85,7 @@ The same JSON API doubles as an integration surface for external AI agents:
   `X-API-Key: <key>`) on `/api/*` — no browser cookie needed. See **Security** below.
 - **MCP server:** [`tally_mcp/`](tally_mcp/) wraps the endpoints as MCP tools
   (`get_dashboard`, `list_reference`, `list_transactions`, `get_fx_rates`, `parse_expense`,
-  `log_transaction`, `log_from_text`, `set_balance`) for Claude Desktop / Claude Code / any
+  `log_transaction`, `log_from_text`, `delete_transaction`, `set_balance`) for Claude Desktop / Claude Code / any
   MCP host. It runs as the `mcp` compose service (Streamable HTTP on `:9000/mcp`), guarded
   by `MCP_AUTH_TOKEN` — agents connect with `Authorization: Bearer <token>` and the sidecar
   reaches the app with `API_KEY` internally. See `tally_mcp/README.md` for client config.
