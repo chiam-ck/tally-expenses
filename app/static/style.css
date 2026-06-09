@@ -26,7 +26,12 @@ a { color: var(--accent); text-decoration: none; }
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 14px 16px;
+  /* Safe-area insets: in standalone (PWA) mode the page extends under the iOS
+     status bar (viewport-fit=cover), so push the bar's content below it. */
+  padding: calc(14px + env(safe-area-inset-top, 0px))
+           max(16px, env(safe-area-inset-right, 0px))
+           14px
+           max(16px, env(safe-area-inset-left, 0px));
   border-bottom: 1px solid var(--border);
   position: sticky;
   top: 0;
@@ -393,7 +398,8 @@ label.inline input { width: auto; }
   display: none;
   background: rgba(4, 8, 16, 0.66);
   backdrop-filter: blur(3px);
-  padding: 24px 14px;
+  padding: calc(24px + env(safe-area-inset-top, 0px)) 14px
+           calc(24px + env(safe-area-inset-bottom, 0px));
   overflow-y: auto;
 }
 .modal-overlay.open { display: flex; align-items: flex-start; justify-content: center; }
