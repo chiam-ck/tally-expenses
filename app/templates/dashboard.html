@@ -12,7 +12,7 @@
 
 <!-- Primary actions: prominent, thumb-reachable, not buried in the menu. -->
 <div class="quick-actions">
-  <button type="button" class="qa qa-log" data-modal-open="log">＋ Log expense</button>
+  <button type="button" class="qa qa-log" data-modal-open="log">＋ Log</button>
   <button type="button" class="qa qa-balance" data-modal-open="balance">＄ Update balance</button>
 </div>
 
@@ -91,7 +91,7 @@
           <tr>
             <td>{{ b.name }}{% if b.type == 'liability' %}<span class="tag">liability</span>{% endif %}</td>
             <td class="muted">{{ b.currency }}</td>
-            <td class="num {% if b.type == 'liability' and b.balance %}neg{% endif %}">{{ b.balance | money }}</td>
+            <td class="num {% if b.type == 'liability' and b.balance and b.balance > 0 %}neg{% elif b.type == 'liability' and b.balance and b.balance < 0 %}pos{% endif %}">{{ b.balance | money }}</td>
             <td class="num muted">{{ b.snap_date or '—' }}</td>
           </tr>
         {% endfor %}

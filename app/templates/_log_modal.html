@@ -5,12 +5,20 @@
 <div class="card">
   <div class="field">
     <label for="nl">Describe it</label>
-    <textarea id="nl" placeholder="e.g. grab to office 12"></textarea>
+    <textarea id="nl" placeholder="e.g. grab to office 12, or received salary 4000"></textarea>
   </div>
   <button type="button" id="parse-btn" class="secondary">Parse</button>
 </div>
 
 <form id="log-form" class="card hidden">
+  <div class="flow-toggle-wrap">
+    <label class="flow-opt expense active">
+      <input type="radio" name="flow" value="expense" checked> − Expense
+    </label>
+    <label class="flow-opt income">
+      <input type="radio" name="flow" value="income"> + Income
+    </label>
+  </div>
   <div class="grid2">
     <div class="field">
       <label for="amount">Amount</label>
@@ -72,7 +80,8 @@
     let account = 'CASH_SGD';
     const map = [['dbs cc','DBS_CC'],['mbb cc','MBB_CC'],['isaavy','MBB_ISAAVY'],['dbs','DBS'],['ocbc','OCBC'],['paylah','PAYLAH'],['wise','WISE'],['tngo','TNGO'],['tunai','TUNAI'],['maybank','MBB_MYR'],['myr','MBB_MYR']];
     for (const [kw, acc] of map) { if (text.includes(kw)) { account = acc; break; } }
-    return { amount, category, account, note: text, currency: currencyForAccount(account) };
+    let flow = /(salary|received|refund|cashback|dividend|reimburse)/.test(text) ? 'income' : 'expense';
+    return { amount, category, account, note: text, currency: currencyForAccount(account), flow: flow };
   }
 
   function fillForm(p) {
@@ -81,8 +90,28 @@
     accSel.value = ACCOUNTS.includes(p.account) ? p.account : 'CASH_SGD';
     curInput.value = p.currency || currencyForAccount(accSel.value);
     root.querySelector('#note').value = p.note || '';
+    // Flow toggle
+    var flow = p.flow === 'income' ? 'income' : 'expense';
+    root.querySelectorAll('input[name="flow"]').forEach(function(inp) {
+      inp.checked = inp.value === flow;
+    });
+    root.querySelectorAll('.flow-opt').forEach(function(o) {
+      o.classList.toggle('active', o.classList.contains(flow));
+    });
+    // Update the button label to match
+    root.querySelector('#log-btn').textContent = flow === 'income' ? 'Log income' : 'Log expense';
     form.classList.remove('hidden');
   }
+
+  // Flow toggle click handler — sync radio + active class
+  root.querySelectorAll('input[name="flow"]').forEach(function(inp) {
+    inp.addEventListener('change', function() {
+      root.querySelectorAll('.flow-opt').forEach(function(o) {
+        o.classList.toggle('active', o.querySelector('input').value === inp.value);
+      });
+      root.querySelector('#log-btn').textContent = inp.value === 'income' ? 'Log income' : 'Log expense';
+    });
+  });
 
   accSel.addEventListener('change', () => { curInput.value = currencyForAccount(accSel.value); });
 
@@ -107,11 +136,13 @@
     e.preventDefault();
     const btn = root.querySelector('#log-btn');
     btn.disabled = true;
+    const flowInput = root.querySelector('input[name="flow"]:checked');
     const payload = {
       account_id: accSel.value,
       category: root.querySelector('#category').value,
       amount: parseFloat(root.querySelector('#amount').value) || 0,
       currency: curInput.value,
+      flow: flowInput ? flowInput.value : 'expense',
       note: root.querySelector('#note').value,
     };
     try {

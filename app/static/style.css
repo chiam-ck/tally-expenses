@@ -150,8 +150,13 @@ tr:last-child td { border-bottom: none; }
 .txn-top { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
 .txn-cat { font-weight: 600; }
 .txn-amt { display: inline-flex; flex-direction: column; align-items: flex-end; font-variant-numeric: tabular-nums; font-weight: 600; white-space: nowrap; }
-.txn-amt.pos .txn-native { color: var(--good, #4ade80); }
+.txn-amt.expense .txn-native { color: var(--bad); }
+.txn-amt.income .txn-native { color: var(--good, #4ade80); }
+.txn-amt.transfer .txn-native { color: var(--good, #4ade80); }
 .txn-sgd { font-weight: 400; font-size: .76rem; margin-top: 2px; }
+.flow-badge { display: inline-block; font-size: .68rem; padding: 1px 7px; border-radius: 999px; font-weight: 600; }
+.flow-badge.expense { color: var(--bad); border: 1px solid var(--bad); }
+.flow-badge.income { color: var(--good, #4ade80); border: 1px solid var(--good, #4ade80); }
 .txn-meta { font-size: .8rem; margin-top: 3px; }
 .txn-meta small { opacity: .8; }
 .txn-note { font-size: .86rem; color: var(--text); opacity: .85; margin-top: 4px; word-break: break-word; }
@@ -232,6 +237,13 @@ button:disabled { opacity: .55; cursor: default; }
 .nowrap { white-space: nowrap; }
 .pos { color: var(--good); }
 .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+
+/* Flow type toggle (Expense / Income) */
+.flow-toggle-wrap { display: flex; gap: 0; margin-bottom: 16px; border-radius: 10px; overflow: hidden; border: 1px solid var(--border); }
+.flow-opt { flex: 1; text-align: center; padding: 8px 0; font-size: .88rem; font-weight: 600; cursor: pointer; background: transparent; color: var(--muted); transition: background .15s, color .15s; }
+.flow-opt input { display: none; }
+.flow-opt.expense.active { background: var(--bad); color: #fff; }
+.flow-opt.income.active { background: var(--good, #4ade80); color: #111; }
 
 /* ── brand headline (dashboard) ────────────────────────────────────────── */
 .brand-hero { position: relative; text-align: center; margin: 10px 0 18px; }

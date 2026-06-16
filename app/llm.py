@@ -38,14 +38,19 @@ ACCOUNTS = [
 MYR_ACCOUNTS = {"MBB_MYR", "TUNAI", "TNGO"}
 
 SYSTEM_PROMPT = (
-    "Extract exactly one expense from the user's text and reply with a single JSON "
+    "Extract exactly one transaction from the user's text and reply with a single JSON "
     "object: {\"amount\": number, \"currency\": one of "
     f"{fx.CODES}, \"category\": one of "
-    f"{CATEGORIES}, \"account\": one of {ACCOUNTS}, \"note\": short string}}. "
+    f"{CATEGORIES}, \"account\": one of {ACCOUNTS}, "
+    "\"flow\": one of [\"expense\", \"income\"], "
+    "\"note\": short string}}. "
     "Rule: Grab/Gojek/Tada/taxi/MRT/bus/ezlink/fuel/parking => Transport, UNLESS the "
     "text clearly means food (e.g. GrabFood). Default account is CASH_SGD. "
     "Currency: use the one named in the text (e.g. usd, rm/ringgit, yen, baht, "
-    "euro); default SGD if none is mentioned. Reply with JSON only, no prose."
+    "euro); default SGD if none is mentioned. "
+    "Flow: default is \"expense\". Use \"income\" for salary, received money, "
+    "refunds, cashback, dividends, interest earned, gifts received, or any money "
+    "coming in. Reply with JSON only, no prose."
 )
 
 # ── regex fallback ──────────────────────────────────────────────────────────
@@ -66,6 +71,11 @@ _TRANSPORT_KW = re.compile(
 _SUBS_KW = re.compile(
     r"\b(netflix|icloud|spotify|youtube|claude|chatgpt|openai|subscription|"
     r"prime|disney|apple\s*music)\b",
+    re.I,
+)
+_INCOME_KW = re.compile(
+    r"\b(salary|paycheck|received|refund|cashback|dividend|interest\s*earned|"
+    r"gift\s*received|bonus|side\s*hustle|freelance|reimburse)\b",
     re.I,
 )
 
@@ -112,12 +122,15 @@ def regex_parse(text: str) -> dict:
     # Explicit currency in the text wins; else derive from the account.
     currency = fx.detect_currency(text) or currency_for_account(account)
 
+    flow = "income" if _INCOME_KW.search(text) else "expense"
+
     return {
         "amount": amount,
         "category": category,
         "account": account,
         "note": text.strip(),
         "currency": currency,
+        "flow": flow,
     }
 
 
@@ -161,12 +174,17 @@ def _coerce(obj: dict, text: str) -> dict:
     if currency not in fx.SUPPORTED:
         currency = fx.detect_currency(text) or currency_for_account(account)
 
+    flow = obj.get("flow")
+    if flow not in ("expense", "income"):
+        flow = fallback["flow"]
+
     return {
         "amount": amount,
         "category": category,
         "account": account,
         "note": str(note)[:200],
         "currency": currency,
+        "flow": flow,
     }
 
 

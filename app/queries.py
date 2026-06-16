@@ -2,12 +2,17 @@
 from __future__ import annotations
 
 import calendar
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 
 from . import db
+from .db import SGT
 
 TWO = Decimal("0.01")
+
+
+def _today() -> date:
+    return datetime.now(SGT).date()
 
 
 def d2(value) -> Decimal:
@@ -208,15 +213,15 @@ def net_cash() -> dict[str, Decimal]:
     return {r["currency"]: d2(r["net"]) for r in rows}
 
 
-def upsert_balance(snap_date: date, account_id: str, balance, currency: str, note: str = "") -> None:
+def upsert_balance(snap_date: date, account_id: str, balance, currency: str, note: str = "", source: str = "form") -> None:
     db.execute(
         """
         INSERT INTO balances (snap_date, account_id, balance, currency, source, note)
-        VALUES (%(snap_date)s, %(account_id)s, %(balance)s, %(currency)s, 'form', %(note)s)
+        VALUES (%(snap_date)s, %(account_id)s, %(balance)s, %(currency)s, %(source)s, %(note)s)
         ON CONFLICT (snap_date, account_id)
         DO UPDATE SET balance  = EXCLUDED.balance,
                       currency = EXCLUDED.currency,
-                      source   = 'form',
+                      source   = EXCLUDED.source,
                       note     = EXCLUDED.note
         """,
         {
@@ -224,12 +229,62 @@ def upsert_balance(snap_date: date, account_id: str, balance, currency: str, not
             "account_id": account_id,
             "balance": balance,
             "currency": currency,
+            "source": source,
             "note": note,
         },
     )
 
 
 # ── transactions (flows) ────────────────────────────────────────────────────
+
+def _get_account_type(account_id: str) -> str | None:
+    row = db.query_one(
+        "SELECT type FROM accounts WHERE account_id = %(id)s", {"id": account_id}
+    )
+    return row["type"] if row else None
+
+
+def _txn_balance_delta(flow: str, account_type: str, amount: Decimal) -> Decimal:
+    """How much a transaction changes the account balance (signed)."""
+    if account_type == "asset":
+        # expense/transfer: money leaves  → balance down
+        # income:           money arrives → balance up
+        return amount if flow == "income" else -amount
+    else:  # liability (credit card)
+        # expense:          spend on card → debt up
+        # income/transfer:  payment       → debt down
+        return amount if flow == "expense" else -amount
+
+
+def _reflect_balance(account_id: str, flow: str, amount, sign: int) -> None:
+    """Adjust the latest balance for ``account_id`` by the effect of a
+    transaction (``sign`` +1 for insert, -1 for delete). Always computes
+    from the most recent snapshot, whether manual or auto."""
+    account_type = _get_account_type(account_id)
+    if account_type is None:
+        return
+
+    latest = db.query_one(
+        "SELECT balance FROM v_latest_balance WHERE account_id = %(id)s",
+        {"id": account_id},
+    )
+    if latest is None:
+        return  # no baseline to adjust from
+
+    delta = _txn_balance_delta(flow, account_type, d2(amount))
+    new_balance = (d2(latest["balance"]) + delta * sign).quantize(TWO)
+
+    acct = db.query_one(
+        "SELECT currency FROM accounts WHERE account_id = %(id)s", {"id": account_id}
+    )
+    if acct is None:
+        return
+
+    upsert_balance(
+        _today(), account_id, new_balance, acct["currency"],
+        note="auto: transaction", source="auto",
+    )
+
 
 def insert_transaction(
     txn_id: str,
@@ -243,9 +298,10 @@ def insert_transaction(
     note: str,
     on_conflict_nothing: bool = False,
 ) -> int:
-    """Append a flow row. Returns rowcount (0 if a conflict was ignored)."""
+    """Append a flow row and reflect it in the latest balance snapshot.
+    Returns rowcount (0 if a conflict was ignored)."""
     conflict = "ON CONFLICT DO NOTHING" if on_conflict_nothing else ""
-    return db.execute(
+    rowcount = db.execute(
         f"""
         INSERT INTO transactions
             (txn_id, txn_date, account_id, flow, category, amount, currency, source, note)
@@ -266,6 +322,9 @@ def insert_transaction(
             "note": note,
         },
     )
+    if rowcount:
+        _reflect_balance(account_id, flow, amount, sign=1)
+    return rowcount
 
 
 def get_transaction(txn_id: str) -> dict | None:
@@ -283,11 +342,20 @@ def get_transaction(txn_id: str) -> dict | None:
 
 
 def delete_transaction(txn_id: str) -> int:
-    """Hard-delete a transaction (flow row). Returns rowcount (0 if not found).
-    Balances are independent snapshots, so removing a flow never corrupts them."""
-    return db.execute(
+    """Hard-delete a transaction and reverse its effect on the latest balance
+    snapshot. Returns rowcount (0 if not found)."""
+    txn = db.query_one(
+        "SELECT account_id, flow, amount FROM transactions WHERE txn_id = %(id)s",
+        {"id": txn_id},
+    )
+    if txn is None:
+        return 0
+    rowcount = db.execute(
         "DELETE FROM transactions WHERE txn_id = %(id)s", {"id": txn_id}
     )
+    if rowcount:
+        _reflect_balance(txn["account_id"], txn["flow"], txn["amount"], sign=-1)
+    return rowcount
 
 
 # ── dashboard metrics ───────────────────────────────────────────────────────

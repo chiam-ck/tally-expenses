@@ -82,10 +82,12 @@ Four tables carry the state (`schema.sql`), plus an additively-created `fx_rates
 - **`recurring`** — templates the poster turns into transactions on schedule.
 - **`fx_rates`** — per-currency `to_sgd`, refreshed daily (fallbacks on failure).
 
-**Invariant — stocks vs flows never cross.** The recurring poster and the manual/NL
-logger write to `transactions` only; they never modify `balances`. A recurring bill
-posting does not mutate a balance — the next user snapshot already reflects it. This
-is what prevents double-counting, and it is the one rule not to violate.
+**Transaction → balance reflection.** When a transaction is inserted, the latest
+balance snapshot for its account is automatically adjusted (expense subtracts from
+assets / adds to liabilities; income does the reverse). Deleting a transaction
+reverses the adjustment. The recurring poster therefore keeps balances up-to-date
+as it posts. Manual balance snapshots (via the form or API) still take precedence —
+they overwrite the auto-adjusted row for the day.
 
 All reporting is **SGD-equivalent**: amounts are stored in their native currency and
 converted at read time via `fx_rates` (`amount * to_sgd`). Timezone is Asia/Singapore
