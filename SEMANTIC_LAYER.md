@@ -10,7 +10,7 @@ explains the concepts behind them.
 
 ## 1. What Tally tracks
 
-Two fundamentally different kinds of money data — keep them distinct:
+Two kinds of money data, kept in sync automatically:
 
 - **Stocks → balances.** *How much you have right now* in each account. A
   **balance** is a point-in-time snapshot (e.g. "DBS had S$4,200 on 5 Jun").
@@ -18,9 +18,10 @@ Two fundamentally different kinds of money data — keep them distinct:
 - **Flows → transactions.** *Money moving* — a spend, an income, a transfer. A
   **transaction** is an event with a date, amount, category, and account.
 
-A balance is not derived from transactions and vice-versa; they are recorded
-independently. (You log spends as transactions; you periodically capture account
-balances as snapshots.)
+When you log or delete a transaction, the latest balance snapshot **automatically
+reflects it** (expense subtracts from assets / adds to liabilities; income does
+the reverse; delete reverses the adjustment). You can still manually override
+a balance snapshot at any time — it becomes the new baseline.
 
 ## 2. Conventions
 
@@ -123,22 +124,24 @@ each row carries `amount_sgd`. "Today" = `date_from == date_to == dashboard.toda
 
 ### Write
 
-**`POST /api/txn`** — record one transaction.
+**`POST /api/txn`** — record one transaction. The latest balance snapshot is
+automatically adjusted for the affected account.
 ```json
 { "account_id": "DBS", "category": "Food", "amount": 12.50,
   "currency": "SGD", "flow": "expense", "note": "lunch" }
 → { "ok": true, "txn_id": "T20260605193000" }
 ```
 `currency` defaults to the account's currency. `account_id` and `category` must
-exist (validated server-side → 400 otherwise). `flow` defaults to `expense`.
+exist (validated server-side → 400 otherwise). `flow` defaults to `expense`;
+use `income` for salary, refunds, cashback, etc. — balance adjusts accordingly.
 
-**`DELETE /api/txn/{txn_id}`** — delete one transaction by id. Use to **undo a
-mistaken log** (wrong account, duplicate) rather than leaving a double entry.
+**`DELETE /api/txn/{txn_id}`** — delete one transaction by id. Reverses the
+balance adjustment automatically. Use to **undo a mistaken log** (wrong account,
+duplicate) rather than leaving a double entry.
 ```
 DELETE /api/txn/T20260607161528
 → { "ok": true, "deleted": "T20260607161528" }   (404 if it doesn't exist)
 ```
-Deleting a flow never touches balance snapshots — they're recorded separately.
 
 **`POST /api/balance`** — upsert today's snapshot for one or more accounts.
 ```json
@@ -147,11 +150,15 @@ Deleting a flow never touches balance snapshots — they're recorded separately.
 ```
 
 **`POST /api/parse`** — NL text → structured fields, **does not write**. Never
-errors (regex fallback if the LLM is down).
+errors (regex fallback if the LLM is down). Detects expense vs income.
 ```json
 { "text": "grab to airport 24" }
 → { "amount": 24.0, "currency": "SGD", "category": "Transport",
-    "account": "CASH_SGD", "note": "grab to airport 24" }
+    "account": "CASH_SGD", "flow": "expense", "note": "grab to airport 24" }
+
+{ "text": "received salary 5000" }
+→ { "amount": 5000.0, "currency": "SGD", "category": "Other",
+    "account": "CASH_SGD", "flow": "income", "note": "received salary 5000" }
 ```
 Note the key is `account` (an `account_id`); pass it as `account_id` to `/api/txn`.
 
@@ -183,8 +190,9 @@ both; `confirm=false` previews without writing.)
   are auto-posted by the recurring job — don't also log them manually.
 - **Idempotency:** there's no de-dupe on manual `/api/txn`; re-sending creates a
   second transaction. Track what you've already logged in a session.
-- **Undo mistakes, don't leave them.** If you log to the wrong account or create
-  a duplicate, call `DELETE /api/txn/{txn_id}` to remove the bad row — don't log
-  a correction on top of it. The `txn_id` comes back from every `/api/txn` write.
+- **Undo mistakes, don't leave them.** If you log to the wrong account, wrong
+  amount, or create a duplicate, call `DELETE /api/txn/{txn_id}` — it removes the
+  row and reverses the balance adjustment automatically. Don't log a correction on
+  top of a mistake. The `txn_id` comes back from every `/api/txn` write.
 - This is a **single-user, tailnet-private** app. The API key is the only thing
   gating programmatic access — treat it as a secret.

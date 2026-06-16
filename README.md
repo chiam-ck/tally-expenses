@@ -11,15 +11,15 @@ inside the tailnet (no public exposure) with a single-user login gate on top.
 
 > **Note:** `seed.sql` ships **dummy sample data**, not real finances. Replace it with your own.
 
-## Core model — stocks vs flows (do not violate)
+## Core model — stocks & flows
 
 - **`balances`** = *stocks*: how much money exists, captured by the user (one row per
   account per day). Source of truth for net cash.
-- **`transactions`** = *flows*: where money went (categorization), append-only ledger.
-
-The recurring poster and the manual logger write to **`transactions` only** — they never
-touch `balances`. A recurring bill posting does not change a balance; the next snapshot
-already reflects it. This avoids double-counting.
+- **`transactions`** = *flows*: where money went / came from, append-only ledger.
+  Every insert or delete **automatically adjusts the latest balance snapshot** for the
+  affected account (expense subtracts from assets / adds to liabilities; income does
+  the reverse). You can still manually capture a balance at any time — it just becomes
+  the new baseline.
 
 ## Stack
 
@@ -66,9 +66,9 @@ from the dashboard. On success they refresh so the dashboard/history update.
 | `GET /balance` | Redirects to `/?open=balance` — opens the **Balance** modal (kept for deep links / Home-Screen shortcuts) |
 | `GET /log` | Redirects to `/?open=log` — opens the **Log** modal |
 | `POST /api/balance` | `{rows:[{account_id,balance,currency?}]}` → upsert today's snapshot → `{ok,rows}` |
-| `POST /api/txn` | `{account_id,category,amount,currency?,note?}` → append → `{ok,txn_id}` |
-| `DELETE /api/txn/{txn_id}` | Delete one transaction → `{ok,deleted}` (404 if missing); undo a mistaken/duplicate log |
-| `POST /api/parse` | `{text}` → `{amount,currency,category,account,note}`; OpenAI-compatible LLM with regex fallback, never 5xx. Auto-detects currency from the text (symbols/codes/words; SGD default) |
+| `POST /api/txn` | `{account_id,category,amount,currency?,flow?,note?}` → append + adjust balance → `{ok,txn_id}` |
+| `DELETE /api/txn/{txn_id}` | Delete one transaction + reverse its balance adjustment → `{ok,deleted}` (404 if missing) |
+| `POST /api/parse` | `{text}` → `{amount,currency,category,account,flow,note}`; OpenAI-compatible LLM with regex fallback, never 5xx. Detects expense vs income, auto-detects currency from text (symbols/codes/words; SGD default) |
 | `GET /api/dashboard` | JSON of all dashboard metrics (SGD-equivalent) |
 | `GET /api/fx` | Current FX rates (`to_sgd` per currency) + supported currency list |
 | `GET /api/reference` | Live `accounts` + `categories` + `currencies` (valid values for writes; for agents) |
@@ -85,10 +85,11 @@ The same JSON API doubles as an integration surface for external AI agents:
   `X-API-Key: <key>`) on `/api/*` — no browser cookie needed. See **Security** below.
 - **MCP server:** [`tally_mcp/`](tally_mcp/) wraps the endpoints as MCP tools
   (`get_dashboard`, `list_reference`, `list_transactions`, `get_fx_rates`, `parse_expense`,
-  `log_transaction`, `log_from_text`, `delete_transaction`, `set_balance`) for Claude Desktop / Claude Code / any
-  MCP host. It runs as the `mcp` compose service (Streamable HTTP on `:9000/mcp`), guarded
-  by `MCP_AUTH_TOKEN` — agents connect with `Authorization: Bearer <token>` and the sidecar
-  reaches the app with `API_KEY` internally. See `tally_mcp/README.md` for client config.
+  `log_transaction`, `log_income`, `log_from_text`, `delete_transaction`, `set_balance`)
+  for Claude Desktop / Claude Code / any MCP host. It runs as the `mcp` compose service
+  (Streamable HTTP on `:9000/mcp`), guarded by `MCP_AUTH_TOKEN` — agents connect with
+  `Authorization: Bearer <token>` and the sidecar reaches the app with `API_KEY` internally.
+  See `tally_mcp/README.md` for client config.
 - **Semantic layer:** [`SEMANTIC_LAYER.md`](SEMANTIC_LAYER.md) is the domain context an
   agent should read first — stocks vs flows, liquid cash, burn, FX, the write contracts,
   and guardrails.
@@ -184,12 +185,13 @@ psql "$DATABASE_URL" -f schema.sql && psql "$DATABASE_URL" -f seed.sql
 ### 3. Run the app (on app-host)
 
 ```bash
-docker compose up -d --build
+./deploy.sh
 ```
 
-`docker-compose.yml` runs **only the app** and uses `network_mode: host` so the container
-reaches `*.ts.net` through app-host's tailscale interface. Uvicorn binds
-`0.0.0.0:8000`.
+This stamps the current git tag into `.env` as `APP_VERSION` (shown in the app footer),
+then builds and starts the containers. `docker-compose.yml` runs the app + optional MCP
+sidecar with `network_mode: host` so the container reaches `*.ts.net` through app-host's
+tailscale interface. Uvicorn binds `0.0.0.0:8000`.
 
 ```bash
 docker compose logs -f app     # watch startup; confirms scheduler jobs registered
@@ -248,7 +250,7 @@ tailscale serve https / http://localhost:8000
    `fx_update` runs, Combined uses the live MYR→SGD rate instead of 0.30.) *(`seed.sql`
    is dummy sample data, not real finances.)*
 2. Saving the balance form twice in one day → exactly one row per account per day (upsert).
-3. `grab to office 12` → Transport / CASH_SGD / 12, appended to `transactions`.
+3. `grab to office 12` → Transport / CASH_SGD / 12 / expense, appended to `transactions` and reflected on CASH_SGD balance.
 4. Recurring poster posts exactly one row per due template per day; re-running posts nothing.
 5. Avg daily burn uses discretionary categories only; projection = booked MTD + burn ×
    remaining days.
