@@ -138,10 +138,10 @@ def list_transactions(
 
 @mcp.tool()
 def parse_expense(text: str) -> dict:
-    """Parse a free-text spend note into structured fields WITHOUT logging it.
-    Returns {amount, currency, category, account, note}. Useful to preview/confirm
-    before calling log_transaction or log_from_text. Example input:
-    "grab to airport 24" or "lunch 8.50 rm at maybank"."""
+    """Parse free-text into structured fields WITHOUT logging it. Returns
+    {amount, currency, category, account, flow, note}. Detects expense vs income
+    automatically. Useful to preview/confirm before logging. Examples:
+    "grab to airport 24" → flow=expense, "received salary 5000" → flow=income."""
     return _request("POST", "/api/parse", json={"text": text})
 
 
@@ -172,9 +172,10 @@ def log_transaction(
 @mcp.tool()
 def log_from_text(text: str, confirm: bool = True) -> dict:
     """One-shot natural-language logging: parse `text` then record the resulting
-    transaction. Returns the parsed fields plus the new txn_id. Set confirm=False
-    to only parse and return what WOULD be logged (no write) — use that when you
-    want the user to approve first."""
+    transaction. Respects the flow detected by the parser (expense or income).
+    Returns the parsed fields plus the new txn_id. Set confirm=False to only
+    parse and return what WOULD be logged (no write) — use that when you want
+    the user to approve first."""
     parsed = _request("POST", "/api/parse", json={"text": text})
     if "error" in parsed:
         return parsed
@@ -185,7 +186,7 @@ def log_from_text(text: str, confirm: bool = True) -> dict:
         category=parsed["category"],
         amount=parsed["amount"],
         currency=parsed.get("currency"),
-        flow="expense",
+        flow=parsed.get("flow", "expense"),
         note=parsed.get("note", ""),
     )
     return {"parsed": parsed, "result": result, "logged": "txn_id" in result}
@@ -197,7 +198,7 @@ def delete_transaction(txn_id: str) -> dict:
     you logged the wrong account or a duplicate) instead of leaving a double
     entry. Get the txn_id from log_transaction's return, log_from_text's result,
     or list_transactions. Returns {ok, deleted} or an error if it doesn't exist.
-    Deleting a flow never affects balance snapshots (they're recorded separately)."""
+    Deleting automatically reverses the balance update from the original log."""
     return _request("DELETE", f"/api/txn/{txn_id}")
 
 
