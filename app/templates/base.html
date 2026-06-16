@@ -26,6 +26,10 @@
     {% block content %}{% endblock %}
   </main>
 
+  <footer class="app-footer">
+    <span class="version">{{ app_version }}</span>
+  </footer>
+
   <!-- Floating quick-log button (every page except the dashboard, which has its
        own prominent action row). One tap to log from anywhere. -->
   {% block fab %}

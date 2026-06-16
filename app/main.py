@@ -31,8 +31,10 @@ templates.env.filters["money"] = lambda v: f"{Decimal(str(v or 0)):,.2f}"
 # Branding (env-overridable so it's a one-line change).
 APP_NAME = os.environ.get("APP_NAME", "Tally")
 APP_TAGLINE = os.environ.get("APP_TAGLINE", "Your money, counted")
+APP_VERSION = os.environ.get("APP_VERSION", "dev")
 templates.env.globals["app_name"] = APP_NAME
 templates.env.globals["app_tagline"] = APP_TAGLINE
+templates.env.globals["app_version"] = APP_VERSION
 
 MONTHS = [(i, calendar.month_name[i]) for i in range(1, 13)]
 

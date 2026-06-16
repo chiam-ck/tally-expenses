@@ -447,3 +447,7 @@ label.inline input { width: auto; }
 .spacer { height: 8px; }
 .links { display: flex; gap: 12px; margin-top: 8px; }
 .links a { flex: 1; text-align: center; background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 12px; color: var(--text); }
+
+/* Version footer */
+.app-footer { text-align: center; padding: 24px 0 4px; }
+.version { font-size: .68rem; color: var(--border); font-variant-numeric: tabular-nums; }
