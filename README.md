@@ -85,7 +85,7 @@ from the dashboard. On success they refresh so the dashboard/history update.
 | `GET /history` | Browse history with **filters** (search note/id, account, category, flow, date range) and **pagination** (25/50/100 per page); plus a liquid-cash-by-snapshot-date table |
 | `GET /settings` | Settings area (tabs). Redirects to **Accounts** |
 | `GET /settings/accounts` | Account maintenance: add/edit/activate/deactivate. Delete is guarded — accounts referenced by transactions/balances/recurring can't be hard-deleted (deactivate instead) |
-| `GET /settings/recurring` | Manage recurring charges (add/edit/delete/pause). **Monthly** (every month on the day) or **yearly** (once, in the chosen month). Day 30/31 falls back to month-end |
+| `GET /settings/recurring` | Manage recurring charges (add/edit/delete/pause). **Monthly** (every month on the day), **yearly** (once, in the chosen month), or **every-30-days** (SaaS/Netflix-style — renews 30 days after the last subscription date). Day 30/31 falls back to month-end. Each row shows its estimated next renewal |
 | `GET /settings/fx` | Exchange-rates: every currency's `to_sgd` + inverse, source, last-updated, and a **Refresh now** button |
 | `GET /balance` | Redirects to `/?open=balance` — opens the **Balance** modal (kept for deep links / Home-Screen shortcuts) |
 | `GET /log` | Redirects to `/?open=log` — opens the **Log** modal |

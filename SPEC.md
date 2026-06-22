@@ -59,18 +59,21 @@ Use `schema.sql` verbatim. Summary:
 
 - `accounts(account_id PK, name, currency, type[asset|liability], active, sort_order)`
 - `categories(name PK, is_discretionary, sort_order)` — `is_discretionary` drives the burn-rate calc.
-- `recurring(recur_id PK, name, account_id FK, flow, category, amount, currency, day_of_month, active, start_date, end_date, note)`
+- `recurring(recur_id PK, name, account_id FK, flow, category, amount, currency, day_of_month, frequency, month_of_year, active, start_date, end_date, note)` — `frequency` ∈ {`monthly`, `yearly`, `every30`} (`frequency`/`month_of_year` added additively at startup if missing; `schema.sql` itself stays lean)
 - `transactions(id, txn_id UNIQUE, txn_date, account_id FK, flow, category, amount, currency, source, note, created_at)` — **append-only flows ledger**. Partial unique index `(source, txn_date) WHERE source LIKE 'recurring:%'` enforces recurring-poster idempotency.
 - `balances(id, snap_date, account_id FK, balance, currency, source, note, created_at, UNIQUE(snap_date, account_id))` — **stocks**, one row per account per day (the old `snap_key`).
 - `app_config(id=1, myr_to_sgd)` — FX assumption.
 - Views: `v_latest_balance` (DISTINCT ON account_id, newest snap_date), `v_net_cash` (assets − liabilities per currency).
 
-### Core model principle (do not violate)
-**Stocks vs flows are independent.** `balances` is the source of truth for "how much money exists"
-(captured by the user). `transactions` is for "where it went" (categorization). The recurring poster
-and manual logger write to `transactions` only — they must **never** modify `balances`. A recurring
-bill posting does not change a balance; the next balance snapshot already reflects it. This avoids
-double-counting.
+### Core model principle
+**Stocks and flows stay in sync.** `balances` is "how much money exists"; `transactions` is "where it
+went" (categorization). Inserting or deleting a transaction **auto-reflects** into the account's latest
+balance snapshot: an expense subtracts from assets (adds to a liability/card), income does the reverse,
+and a delete reverses the same adjustment. The reflected row is written as today's snapshot with
+`source='auto'`. Manual capture still wins — saving the balance form (`source='form'`) upserts the same
+`(snap_date, account_id)` and overwrites the auto row, so a user-entered figure is never clobbered.
+(Originally stocks and flows were kept independent; auto-reflection superseded that so the dashboard
+tracks spending without waiting for the next manual snapshot.)
 
 ## 5. Business rules
 
@@ -86,13 +89,17 @@ double-counting.
 - Never upsert transactions; each is a distinct row.
 
 ### 5.3 Recurring poster (daily 00:10)
-- For each `recurring` row where `active` AND today is within `[start_date, end_date]` (end NULL = open):
-  - effective day = `min(day_of_month, days_in_month)` (so day 30/31 fires on month-end in short months).
-  - if `today.day == effective day`: insert a transaction with `source='recurring:'+recur_id`,
-    `category`, `amount`, `currency`, `account_id` from the template, `note='auto'`,
-    `txn_id='T'+yyyymmdd+'-'+recur_id`.
+- For each `recurring` row where `active` AND today is within `[start_date, end_date]` (end NULL = open),
+  decide "due today" via `frequency` (shared `is_due()`/`next_due()` helpers in `jobs.py`):
+  - **monthly** — due when `today.day == min(day_of_month, days_in_month)` (so day 30/31 fires on
+    month-end in short months).
+  - **yearly** — same day rule, but only in `month_of_year`.
+  - **every30** — due every 30 days counted from `start_date` (the last subscription date); i.e.
+    `(today − start_date).days` is positive and a multiple of 30. SaaS/Netflix-style fixed cycle.
+  - When due: insert a transaction with `source='recurring:'+recur_id`, `category`, `amount`,
+    `currency`, `account_id` from the template, `note='auto'`, `txn_id='T'+yyyymmdd+'-'+recur_id`.
   - Idempotent: rely on the partial unique index; use `ON CONFLICT DO NOTHING`. Re-running the same
-    day posts nothing new.
+    day posts nothing new. The recurring UI shows each template's estimated `next_due`.
 
 ### 5.4 Monthly rollover (1st of month 00:05)
 - For each account, take its latest balance (`v_latest_balance`) and insert a row dated the **1st of
@@ -140,9 +147,12 @@ discretionary), Total / Days elapsed / Avg daily burn / Projected month. Links t
 
 - `POST /api/balance` → body `{rows:[{account_id, balance, currency?}]}` → upsert today's snapshot.
   Returns `{ok:true, rows:n}`.
-- `POST /api/txn` → body `{account_id, category, amount, currency?, note?}` → insert. Returns `{ok:true, txn_id}`.
-- `POST /api/parse` → body `{text}` → returns `{amount, category, account, note}`. Server calls
-  LiteLLM; on any error returns the regex-based parse (never 5xx).
+- `POST /api/txn` → body `{account_id, category, amount, currency?, flow?, note?}` → insert + auto-reflect
+  the account's latest balance (§4 core principle). Returns `{ok:true, txn_id}`. `flow` defaults to
+  `expense`; `income` (salary/refund/cashback) and `transfer` are also accepted.
+- `POST /api/parse` → body `{text}` → returns `{amount, category, account, flow, note}`; detects expense
+  vs income and the currency from the text. Server calls LiteLLM; on any error returns the regex-based
+  parse (never 5xx).
 - `GET /api/dashboard` → JSON of all dashboard metrics (handy for future widgets).
 
 ## 8. LLM parse (LiteLLM, OpenAI-compatible)
@@ -151,9 +161,10 @@ discretionary), Total / Days elapsed / Avg daily burn / Projected month. Links t
   `Authorization: Bearer {LITELLM_KEY}`, model `LITELLM_MODEL`
   (current choice: `openrouter/google/gemma-4-26b-a4b-it`).
 - Request: `temperature:0`, `response_format:{type:"json_object"}`, system + user messages.
-- System prompt: extract one expense → JSON `{amount(number), category(one of the 10), account(one of
-  the 11 account_ids), note(short)}`. Rule: **Grab/Gojek/Tada/taxi/MRT/bus/ezlink/fuel/parking →
-  Transport, unless the text clearly means food (e.g. GrabFood). Default account CASH_SGD.**
+- System prompt: extract one transaction (expense or income) → JSON `{amount(number), category(one of the
+  categories), account(one of the account_ids), flow("expense"|"income"|"transfer"), note(short)}`. Rules:
+  **Grab/Gojek/Tada/taxi/MRT/bus/ezlink/fuel/parking → Transport, unless the text clearly means food (e.g.
+  GrabFood); salary/bonus/refund/cashback → income. Default account CASH_SGD, default flow expense.**
 - Robust extraction: the model may wrap JSON in prose/``` fences — extract the first `{...}` block,
   `JSON.parse`, coerce types, default missing fields.
 - **Regex fallback** (use when LLM errors or returns junk): number → amount; keyword maps for
@@ -228,8 +239,8 @@ the tailscale interface, and a `pg_hba.conf` line permitting app-host's tailnet 
    dashboard shows Net cash (SGD) = **11,320.00**, Net cash (MYR) = **5,150.00**, Combined (SGD) ≈
    **12,865.00** (FX 0.30). (Assets 11,670.00 − liabilities 350.00 = 11,320.00.)
 2. Saving the balance form twice in one day yields exactly one row per account for that date (upsert).
-3. Logging "grab to office 12" → category **Transport**, account default **CASH_SGD**, amount 12;
-   appended to `transactions`.
+3. Logging "grab to office 12" → category **Transport**, account default **CASH_SGD**, amount 12,
+   flow **expense**; appended to `transactions` and the CASH_SGD latest balance auto-adjusts down by 12.
 4. Running the recurring poster on a day a template is due appends exactly one row; running it again
    the same day appends nothing.
 5. Avg daily burn uses only discretionary categories; Projected month = booked MTD + burn × remaining
