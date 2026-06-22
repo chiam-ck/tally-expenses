@@ -390,6 +390,7 @@ button:disabled { opacity: .55; cursor: default; }
 .rec-edit { margin-left: auto; }
 .tag.freq-m { color: var(--accent); border-color: var(--accent); }
 .tag.freq-y { color: var(--good); border-color: var(--good); }
+.tag.freq-30 { color: #fbbf24; border-color: #fbbf24; }
 .chip-btn {
   width: auto; margin: 0; padding: 5px 12px; font-size: .78rem; font-weight: 600;
   border-radius: 999px; cursor: pointer; border: 1px solid var(--border); background: transparent;

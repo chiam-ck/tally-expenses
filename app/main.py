@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import logging
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
@@ -421,24 +421,37 @@ def _parse_recurring_form(form) -> dict:
     if flow not in ("expense", "income", "transfer"):
         flow = "expense"
     frequency = form.get("frequency") or "monthly"
-    if frequency not in ("monthly", "yearly"):
+    if frequency not in ("monthly", "yearly", "every30"):
         frequency = "monthly"
 
     name = (form.get("name") or "").strip()
     if not name:
         raise HTTPException(status_code=400, detail="name is required")
 
-    try:
-        dom = max(1, min(31, int(form.get("day_of_month") or 1)))
-    except (TypeError, ValueError):
-        raise HTTPException(status_code=400, detail="invalid day_of_month")
-
+    start_date = (form.get("start_date") or "").strip() or None
     moy = None
-    if frequency == "yearly":
+
+    if frequency == "every30":
+        # The "last subscription date" is the anchor; renewals fall every 30 days.
+        if not start_date:
+            raise HTTPException(
+                status_code=400,
+                detail="last subscription date is required for every-30-day",
+            )
         try:
-            moy = max(1, min(12, int(form.get("month_of_year") or 1)))
+            dom = date.fromisoformat(start_date).day
+        except ValueError:
+            raise HTTPException(status_code=400, detail="invalid last subscription date")
+    else:
+        try:
+            dom = max(1, min(31, int(form.get("day_of_month") or 1)))
         except (TypeError, ValueError):
-            raise HTTPException(status_code=400, detail="invalid month_of_year")
+            raise HTTPException(status_code=400, detail="invalid day_of_month")
+        if frequency == "yearly":
+            try:
+                moy = max(1, min(12, int(form.get("month_of_year") or 1)))
+            except (TypeError, ValueError):
+                raise HTTPException(status_code=400, detail="invalid month_of_year")
 
     return {
         "name": name,
@@ -451,7 +464,7 @@ def _parse_recurring_form(form) -> dict:
         "frequency": frequency,
         "month_of_year": moy,
         "active": bool(form.get("active")),
-        "start_date": (form.get("start_date") or "").strip() or None,
+        "start_date": start_date,
         "end_date": (form.get("end_date") or "").strip() or None,
         "note": (form.get("note") or "").strip(),
     }
@@ -460,9 +473,13 @@ def _parse_recurring_form(form) -> dict:
 @app.get("/settings/recurring", response_class=HTMLResponse)
 def page_recurring(request: Request, edit: str = ""):
     editing = queries.get_recurring(edit) if edit else None
+    today = datetime.now(SGT).date()
+    items = queries.list_recurring()
+    for r in items:
+        r["next_due"] = jobs.next_due(r, today)
     return templates.TemplateResponse(
         "recurring.html",
-        base_ctx(request, active_tab="recurring", items=queries.list_recurring(),
+        base_ctx(request, active_tab="recurring", items=items,
                  editing=editing, months=MONTHS),
     )
 

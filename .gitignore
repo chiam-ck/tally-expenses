@@ -15,3 +15,6 @@ venv/
 # editor
 .idea/
 .vscode/
+
+# personal / drafts
+linkedin-post.md

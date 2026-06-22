@@ -8,7 +8,7 @@ from __future__ import annotations
 import calendar
 import logging
 import os
-from datetime import datetime
+from datetime import date, datetime, timedelta
 
 import httpx
 
@@ -17,9 +17,72 @@ from .db import SGT
 
 log = logging.getLogger("expenses.jobs")
 
+EVERY_N_DAYS = 30  # cadence for the "every30" frequency (SaaS/Netflix-style subs)
+
 
 def _today():
     return datetime.now(SGT).date()
+
+
+def _month_end_day(day_of_month: int, year: int, month: int) -> int:
+    """Clamp a chosen day to the last day of short months (e.g. 31 → 30/28)."""
+    return min(day_of_month, calendar.monthrange(year, month)[1])
+
+
+def is_due(r: dict, today: date) -> bool:
+    """Whether a recurring template should post on ``today``.
+
+    monthly  → every month on day_of_month (clamped to month-end)
+    yearly   → once a year, in month_of_year on day_of_month
+    every30  → every 30 days counted from start_date (the last subscription date)
+    """
+    freq = r.get("frequency") or "monthly"
+    if freq == "every30":
+        anchor = r.get("start_date")
+        if not anchor:
+            return False
+        diff = (today - anchor).days
+        return diff > 0 and diff % EVERY_N_DAYS == 0
+    if freq == "yearly" and today.month != r.get("month_of_year"):
+        return False
+    return today.day == _month_end_day(r["day_of_month"], today.year, today.month)
+
+
+def next_due(r: dict, today: date) -> date | None:
+    """Estimated next renewal/post date on or after ``today`` (None if past end_date)."""
+    freq = r.get("frequency") or "monthly"
+    end = r.get("end_date")
+    cand: date | None = None
+
+    if freq == "every30":
+        anchor = r.get("start_date")
+        if not anchor:
+            return None
+        if today <= anchor:
+            cand = anchor + timedelta(days=EVERY_N_DAYS)
+        else:
+            rem = (today - anchor).days % EVERY_N_DAYS
+            cand = today if rem == 0 else today + timedelta(days=EVERY_N_DAYS - rem)
+    else:
+        # Walk forward month by month (≤12 steps) until the day matches.
+        y, m = today.year, today.month
+        for _ in range(13):
+            if freq != "yearly" or m == r.get("month_of_year"):
+                d = _month_end_day(r["day_of_month"], y, m)
+                c = date(y, m, d)
+                if c >= today:
+                    cand = c
+                    break
+            m += 1
+            if m > 12:
+                m, y = 1, y + 1
+
+    start = r.get("start_date")
+    if cand and start and cand < start:
+        cand = start
+    if cand and end and cand > end:
+        return None
+    return cand
 
 
 # ── recurring poster (daily 00:10) ──────────────────────────────────────────
@@ -27,16 +90,11 @@ def _today():
 def recurring_poster() -> dict:
     """Post any recurring template due today. Idempotent via partial unique index."""
     today = _today()
-    days_in_month = calendar.monthrange(today.year, today.month)[1]
     posted = 0
     skipped = 0
 
     for r in queries.active_recurring(today):
-        # Yearly templates fire only in their month; monthly fire every month.
-        if r.get("frequency") == "yearly" and today.month != r.get("month_of_year"):
-            continue
-        effective_day = min(r["day_of_month"], days_in_month)
-        if today.day != effective_day:
+        if not is_due(r, today):
             continue
         txn_id = f"T{today.strftime('%Y%m%d')}-{r['recur_id']}"
         rows = queries.insert_transaction(

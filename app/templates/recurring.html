@@ -9,7 +9,7 @@
   <h2 style="margin:0">Recurring charges</h2>
   <span class="pill">{{ items | length }} templates</span>
 </div>
-<p class="note">Auto-posted to the ledger by the daily poster (00:10). Monthly fires every month on the chosen day; yearly fires once, in the chosen month. Day 30/31 falls back to month-end in short months.</p>
+<p class="note">Auto-posted to the ledger by the daily poster (00:10). Monthly fires every month on the chosen day; yearly fires once, in the chosen month; every-30-days renews 30 days after the last subscription date (good for SaaS/Netflix). Day 30/31 falls back to month-end in short months.</p>
 
 <div class="rec-list">
 {% for r in items %}
@@ -22,9 +22,12 @@
     <div class="rec-sched">
       {% if r.frequency == 'yearly' %}
         <span class="tag freq-y">Yearly</span> {{ r.day_of_month }} {{ months[r.month_of_year - 1][1] if r.month_of_year else '?' }}
+      {% elif r.frequency == 'every30' %}
+        <span class="tag freq-30">Every 30 days</span> last {{ r.start_date }}
       {% else %}
         <span class="tag freq-m">Monthly</span> day {{ r.day_of_month }}
       {% endif %}
+      {% if r.next_due %}<span class="muted">· next {{ r.next_due }}</span>{% endif %}
     </div>
     {% if r.note %}<div class="rec-note muted">{{ r.note }}</div>{% endif %}
     <div class="rec-actions">
@@ -84,11 +87,12 @@
       <select id="r-frequency" name="frequency">
         <option value="monthly" {% if not editing or editing.frequency == 'monthly' %}selected{% endif %}>Monthly</option>
         <option value="yearly" {% if editing and editing.frequency == 'yearly' %}selected{% endif %}>Yearly</option>
+        <option value="every30" {% if editing and editing.frequency == 'every30' %}selected{% endif %}>Every 30 days</option>
       </select>
     </div>
-    <div class="field">
+    <div class="field" id="dom-field">
       <label for="r-dom">Day of month</label>
-      <input type="number" min="1" max="31" id="r-dom" name="day_of_month" value="{{ editing.day_of_month if editing else 1 }}" required>
+      <input type="number" min="1" max="31" id="r-dom" name="day_of_month" value="{{ editing.day_of_month if editing else 1 }}">
     </div>
     <div class="field" id="moy-field">
       <label for="r-moy">Month (yearly)</label>
@@ -97,8 +101,9 @@
       </select>
     </div>
     <div class="field">
-      <label for="r-start">Start date</label>
+      <label for="r-start" id="r-start-label">Start date</label>
       <input type="date" id="r-start" name="start_date" value="{{ editing.start_date if editing and editing.start_date else '' }}">
+      <small class="muted" id="r-start-hint" style="display:none">Last subscription date — next renewal is estimated 30 days later.</small>
     </div>
     <div class="field">
       <label for="r-end">End date (optional)</label>
@@ -124,7 +129,21 @@
 (function () {
   const freq = document.getElementById('r-frequency');
   const moy = document.getElementById('moy-field');
-  function sync() { moy.style.display = (freq.value === 'yearly') ? '' : 'none'; }
+  const domField = document.getElementById('dom-field');
+  const dom = document.getElementById('r-dom');
+  const start = document.getElementById('r-start');
+  const startLabel = document.getElementById('r-start-label');
+  const startHint = document.getElementById('r-start-hint');
+  function sync() {
+    const every30 = freq.value === 'every30';
+    moy.style.display = (freq.value === 'yearly') ? '' : 'none';
+    // every-30-days uses the last subscription date as the anchor, not a fixed day.
+    domField.style.display = every30 ? 'none' : '';
+    dom.required = !every30;
+    start.required = every30;
+    startLabel.textContent = every30 ? 'Last subscription date' : 'Start date';
+    startHint.style.display = every30 ? '' : 'none';
+  }
   freq.addEventListener('change', sync);
   sync();
 })();

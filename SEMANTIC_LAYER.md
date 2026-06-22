@@ -60,9 +60,11 @@ account, so a partial capture still reflects true standing.
 
 ### recurring
 Templates that auto-post transactions on a schedule. Fields include `flow`,
-`category`, `amount`, `currency`, `frequency` (`monthly` | `yearly`),
+`category`, `amount`, `currency`, `frequency` (`monthly` | `yearly` | `every30`),
 `day_of_month`, `month_of_year` (yearly only), `start_date`/`end_date`, `active`.
-A daily job posts due ones idempotently.
+For `every30` (SaaS/Netflix-style subs), `start_date` is the last subscription
+date and renewals fall every 30 days after it. A daily job posts due ones
+idempotently.
 
 ### fx_rates
 Per-currency `to_sgd`, with `source` and `updated_at`. Refreshed daily from a
