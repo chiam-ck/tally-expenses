@@ -11,6 +11,30 @@ inside the tailnet (no public exposure) with a single-user login gate on top.
 
 > **Note:** `seed.sql` ships **dummy sample data**, not real finances. Replace it with your own.
 
+## Architecture
+
+```mermaid
+flowchart LR
+    user([User])
+    hermes["Hermes Agent<br/>(AI assistant)"]
+
+    subgraph tailnet["Tailscale tailnet · no public exposure"]
+        subgraph apphost["app-host"]
+            web["Web GUI<br/>dashboard"]
+            tally["Tally<br/>FastAPI + APScheduler"]
+            mcp["MCP service<br/>tally_mcp sidecar"]
+        end
+        pg[("Postgres<br/>db-host")]
+    end
+
+    user -->|browser| web
+    user -->|chat| hermes
+    hermes -->|MCP tools over<br/>Streamable HTTP, token-guarded| mcp
+    web --> tally
+    mcp --> tally
+    tally -->|SQL via DATABASE_URL| pg
+```
+
 ## Core model — stocks & flows
 
 - **`balances`** = *stocks*: how much money exists, captured by the user (one row per
