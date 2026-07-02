@@ -190,8 +190,8 @@ def page_dashboard(request: Request):
         cat_segs, center_label=charts._money(m["total_expenses_sgd"]), center_sub="MTD SGD",
     )
 
-    # 3) daily spend trend (bars, day 1..elapsed)
-    ds = queries.daily_spend(t.replace(day=1), t)
+    # 3) daily discretionary spend trend (bars, day 1..elapsed)
+    ds = queries.daily_spend(t.replace(day=1), t, discretionary_only=True)
     elapsed = m["days_elapsed"]
     bars = [{
         "label": str(day),

@@ -433,13 +433,21 @@ def category_spend_rows(month_start: date, month_end: date) -> list[dict]:
     )
 
 
-def daily_spend(month_start: date, month_end: date) -> dict[date, Decimal]:
-    """SGD-equivalent expense total per day (all currencies, via fx_rates)."""
+def daily_spend(month_start: date, month_end: date,
+                discretionary_only: bool = False) -> dict[date, Decimal]:
+    """SGD-equivalent expense total per day (all currencies, via fx_rates).
+    When ``discretionary_only``, only categories with is_discretionary=true
+    are counted — excludes mortgage, family transfers, bills etc."""
+    disc_join = (
+        "JOIN categories c ON c.name = t.category AND c.is_discretionary"
+        if discretionary_only else ""
+    )
     rows = db.query(
-        """
+        f"""
         SELECT t.txn_date,
                COALESCE(SUM(t.amount * COALESCE(f.to_sgd, 1)), 0) AS sgd
         FROM transactions t
+        {disc_join}
         LEFT JOIN fx_rates f ON f.currency = t.currency
         WHERE t.flow = 'expense'
           AND t.txn_date >= %(start)s AND t.txn_date <= %(end)s
