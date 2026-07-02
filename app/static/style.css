@@ -318,6 +318,8 @@ button:disabled { opacity: .55; cursor: default; }
 
 /* ── tooltip on projected-month tile ─────────────────────────────────── */
 .tile.has-tooltip { position: relative; cursor: help; }
+.tile.has-tooltip:focus { outline: none; }
+.tile.has-tooltip:focus-visible { outline: 2px solid var(--accent, rgba(59,130,246,.5)); outline-offset: 2px; border-radius: 14px; }
 .tile .tooltip-breakdown {
   position: absolute; bottom: calc(100% + 10px); left: 50%;
   transform: translateX(-50%);
