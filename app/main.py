@@ -193,10 +193,20 @@ def page_dashboard(request: Request):
     # 3) daily discretionary spend trend (bars, day 1..elapsed)
     ds = queries.daily_spend(t.replace(day=1), t, discretionary_only=True)
     elapsed = m["days_elapsed"]
+    # Show value labels on all non-zero bars when ≤14 days; above that, only
+    # on day-label bars (1st, every 5th, last) + the most recent 7 days to
+    # avoid label soup at month-end.
     bars = [{
         "label": str(day),
         "value": float(ds.get(t.replace(day=day), 0)),
         "show_label": (day == 1 or day % 5 == 0 or day == elapsed),
+        "show_value": (
+            float(ds.get(t.replace(day=day), 0)) > 0 and (
+                elapsed <= 14
+                or day == 1 or day % 5 == 0 or day == elapsed
+                or day > elapsed - 7
+            )
+        ),
     } for day in range(1, elapsed + 1)]
     bars_svg = charts.bar_chart(bars)
 

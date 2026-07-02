@@ -189,7 +189,7 @@ def bar_chart(bars: list[dict], width: int = 760, height: int = 200,
                 f'<text x="{bx + bw/2:.1f}" y="{height - 4}" class="chart-axis" '
                 f'text-anchor="middle">{b["label"]}</text>'
             )
-        if v > 0:
+        if b.get("show_value"):
             value_labels += (
                 f'<text x="{bx + bw/2:.1f}" y="{by - 3:.1f}" '
                 f'class="chart-value" text-anchor="middle">{_money(v)}</text>'
