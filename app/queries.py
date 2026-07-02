@@ -360,6 +360,61 @@ def delete_transaction(txn_id: str) -> int:
 
 # ── dashboard metrics ───────────────────────────────────────────────────────
 
+EVERY_N_DAYS = 30  # cadence for every30 recurring frequency
+
+
+def _month_end_day(day_of_month: int, year: int, month: int) -> int:
+    """Clamp a day to the last day of short months (e.g. 31 → 30/28)."""
+    return min(day_of_month, calendar.monthrange(year, month)[1])
+
+
+def _recurring_is_due(r: dict, target: date) -> bool:
+    """Whether a recurring template should post on ``target`` (mirrors jobs.is_due)."""
+    freq = r.get("frequency") or "monthly"
+    if freq == "every30":
+        anchor = r.get("start_date")
+        if not anchor:
+            return False
+        diff = (target - anchor).days
+        return diff > 0 and diff % EVERY_N_DAYS == 0
+    if freq == "yearly" and target.month != r.get("month_of_year"):
+        return False
+    return target.day == _month_end_day(r["day_of_month"], target.year, target.month)
+
+
+def upcoming_recurring_sgd(today: date, month_end: date,
+                           rates: dict[str, Decimal]) -> Decimal:
+    """Sum of recurring expenses (SGD-equivalent) due between today+1 and
+    month_end inclusive. Walks each day and checks every active recurring
+    whose window overlaps the future period."""
+    from datetime import timedelta
+
+    rows = db.query(
+        """
+        SELECT recur_id, account_id, flow, category, amount, currency,
+               day_of_month, frequency, month_of_year, start_date, end_date
+        FROM recurring
+        WHERE active
+          AND flow = 'expense'
+          AND (end_date   IS NULL OR end_date   >  %(today)s)
+          AND (start_date IS NULL OR start_date <= %(month_end)s)
+        ORDER BY recur_id
+        """,
+        {"today": today, "month_end": month_end},
+    )
+
+    total = Decimal("0.00")
+    d = today + timedelta(days=1)
+    while d <= month_end:
+        for r in rows:
+            if _recurring_is_due(r, d):
+                total += (d2(r["amount"]) *
+                          rates.get(r["currency"], Decimal("1")))
+        d += timedelta(days=1)
+
+    return total.quantize(TWO)
+
+
 def category_spend_rows(month_start: date, month_end: date) -> list[dict]:
     """Expense totals per (category, currency) for the month."""
     return db.query(
@@ -443,7 +498,10 @@ def dashboard(today: date) -> dict:
     avg_daily_burn = (
         (disc_sgd / days_elapsed).quantize(TWO) if days_elapsed else Decimal("0.00")
     )
-    projected_month = (total_sgd + avg_daily_burn * days_remaining).quantize(TWO)
+    upcoming = upcoming_recurring_sgd(today, month_end, rates)
+    projected_month = (
+        total_sgd + upcoming + avg_daily_burn * days_remaining
+    ).quantize(TWO)
 
     return {
         "today": today.isoformat(),
