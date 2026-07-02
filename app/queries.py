@@ -499,9 +499,8 @@ def dashboard(today: date) -> dict:
         (disc_sgd / days_elapsed).quantize(TWO) if days_elapsed else Decimal("0.00")
     )
     upcoming = upcoming_recurring_sgd(today, month_end, rates)
-    projected_month = (
-        total_sgd + upcoming + avg_daily_burn * days_remaining
-    ).quantize(TWO)
+    burn_projection = (avg_daily_burn * days_remaining).quantize(TWO)
+    projected_month = (total_sgd + upcoming + burn_projection).quantize(TWO)
 
     return {
         "today": today.isoformat(),
@@ -511,6 +510,8 @@ def dashboard(today: date) -> dict:
         "spend_by_category": cats,
         "has_nonsgd_expenses": has_nonsgd,
         "total_expenses_sgd": total_sgd,
+        "projected_upcoming": upcoming,
+        "projected_burn": burn_projection,
         "days_elapsed": days_elapsed,
         "days_in_month": days_in_month,
         "days_remaining": days_remaining,

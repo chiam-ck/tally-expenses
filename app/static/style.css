@@ -316,6 +316,34 @@ button:disabled { opacity: .55; cursor: default; }
 .t-of { font-size: .9rem; color: var(--muted); font-weight: 500; margin-left: 3px; }
 .t-foot { color: var(--muted); font-size: .7rem; margin-top: 4px; }
 
+/* ── tooltip on projected-month tile ─────────────────────────────────── */
+.tile.has-tooltip { position: relative; cursor: help; }
+.tile .tooltip-breakdown {
+  position: absolute; bottom: calc(100% + 10px); left: 50%;
+  transform: translateX(-50%);
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: 10px; padding: 10px 14px;
+  min-width: 200px; box-shadow: 0 4px 24px rgba(0,0,0,.18);
+  opacity: 0; visibility: hidden;
+  transition: opacity .15s, visibility .15s;
+  z-index: 30; pointer-events: none;
+}
+.tile.has-tooltip:hover .tooltip-breakdown,
+.tile.has-tooltip:focus-within .tooltip-breakdown {
+  opacity: 1; visibility: visible;
+}
+.tooltip-breakdown .tt-row {
+  display: flex; justify-content: space-between; gap: 16px;
+  padding: 3px 0; font-size: .82rem;
+}
+.tooltip-breakdown .tt-row:not(:last-child) {
+  border-bottom: 1px solid var(--border);
+}
+.tooltip-breakdown .tt-row span:first-child { color: var(--muted); }
+.tooltip-breakdown .tt-row span:last-child {
+  font-weight: 600; font-variant-numeric: tabular-nums;
+}
+
 /* svg chart element styling */
 .chart { display: block; width: 100%; height: auto; }
 .chart-wrap { width: 100%; }

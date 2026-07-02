@@ -65,10 +65,15 @@
       <div class="t-value">{{ m.avg_daily_burn | money }}</div>
       <div class="t-foot">discretionary</div>
     </div>
-    <div class="tile accent">
+    <div class="tile accent has-tooltip">
       <div class="t-label">Projected month</div>
       <div class="t-value">{{ m.projected_month | money }}</div>
-      <div class="t-foot">booked + burn × {{ m.days_remaining }}d</div>
+      <div class="t-foot">spent + upcoming + burn × {{ m.days_remaining }}d</div>
+      <div class="tooltip-breakdown">
+        <div class="tt-row"><span>Already spent</span><span>{{ m.total_expenses_sgd | money }}</span></div>
+        <div class="tt-row"><span>Upcoming recurring</span><span>{{ m.projected_upcoming | money }}</span></div>
+        <div class="tt-row"><span>Burn × {{ m.days_remaining }}d ({{ m.avg_daily_burn | money }}/day)</span><span>{{ m.projected_burn | money }}</span></div>
+      </div>
     </div>
   </section>
 </div>
