@@ -173,6 +173,7 @@ def bar_chart(bars: list[dict], width: int = 760, height: int = 200,
 
     rects = ""
     labels = ""
+    value_labels = ""
     for i, b in enumerate(bars):
         v = values[i]
         bh = (plot_h * (v / vmax)) if vmax else 0
@@ -188,14 +189,12 @@ def bar_chart(bars: list[dict], width: int = 760, height: int = 200,
                 f'<text x="{bx + bw/2:.1f}" y="{height - 4}" class="chart-axis" '
                 f'text-anchor="middle">{b["label"]}</text>'
             )
-    peak_lbl = (
-        f'<text x="{pad_x + peak*(bw+gap) + bw/2:.1f}" '
-        f'y="{pad_y + (plot_h - plot_h*(values[peak]/vmax)) - 4:.1f}" '
-        f'class="chart-axis chart-value" text-anchor="middle">{_money(values[peak])}</text>'
-        if values[peak] > 0 else ""
-    )
-
+        if v > 0:
+            value_labels += (
+                f'<text x="{bx + bw/2:.1f}" y="{by - 3:.1f}" '
+                f'class="chart-value" text-anchor="middle">{_money(v)}</text>'
+            )
     return (
         f'<svg viewBox="0 0 {width} {height}" class="chart" role="img" '
-        f'preserveAspectRatio="xMidYMid meet">{rects}{labels}{peak_lbl}</svg>'
+        f'preserveAspectRatio="xMidYMid meet">{rects}{labels}{value_labels}</svg>'
     )
