@@ -57,6 +57,9 @@ async def lifespan(app: FastAPI):
         jobs.register_jobs(scheduler)
         # Refresh FX once shortly after boot (background thread; never blocks startup).
         scheduler.add_job(jobs.fx_update, "date", run_date=_dt.now(SGT), id="fx_boot")
+        # Catch-up recurring poster at boot — if the app restarted after 00:10,
+        # the day's trigger was lost. Idempotent via partial unique index.
+        scheduler.add_job(jobs.recurring_poster, "date", run_date=_dt.now(SGT), id="recurring_boot")
         scheduler.start()
         app.state.scheduler = scheduler
         log.info("scheduler started with jobs: %s", [j.id for j in scheduler.get_jobs()])
