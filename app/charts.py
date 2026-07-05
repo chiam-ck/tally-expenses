@@ -102,39 +102,34 @@ def line_chart(points: list[tuple[str, float]], width: int = 760, height: int = 
 
 # ── comparison line chart: current vs previous period ─────────────────────────
 
-def comparison_line_chart(current: list[tuple[int, str, float]],
-                          previous: list[tuple[int, str, float]],
+def comparison_line_chart(current: list[tuple[str, float]],
+                          previous: list[tuple[str, float]],
                           width: int = 760, height: int = 220,
                           pad_x: int = 16, pad_y: int = 22,
                           cur_color: str = "#3b82f6", prev_color: str = "#94a3b8",
                           cur_label: str = "Last 30 days",
                           prev_label: str = "Previous 30 days") -> str:
-    """Two-line overlay positioned by day offset (negative = days ago).
-    Each point is (day_offset, label, value). Both series share the same
-    day-offset X-axis so they align correctly regardless of point count."""
-    pts_c = [(off, lbl, _f(v)) for off, lbl, v in current]
-    pts_p = [(off, lbl, _f(v)) for off, lbl, v in previous]
+    """Two-line overlay: both series share the same 0..N-1 X-axis (index-based)
+    so the previous period ghost overlays the current period shape directly."""
+    pts_c = [(lbl, _f(v)) for lbl, v in current]
+    pts_p = [(lbl, _f(v)) for lbl, v in previous]
     if not pts_c and not pts_p:
         return _empty(width, height)
 
     # Union value range so both lines share the same scale
-    all_vals = [v for _, _, v in pts_c] + [v for _, _, v in pts_p]
+    all_vals = [v for _, v in pts_c] + [v for _, v in pts_p]
     vmin, vmax = min(all_vals), max(all_vals)
     span = (vmax - vmin) or (abs(vmax) or 1)
     vmin -= span * 0.12
     vmax += span * 0.12
     vrange = (vmax - vmin) or 1
 
-    # Day-offset range for X positioning
-    all_offsets = [off for off, _, _ in pts_c] + [off for off, _, _ in pts_p]
-    off_min, off_max = min(all_offsets), max(all_offsets)
-    off_span = (off_max - off_min) or 1
-
     plot_w = width - 2 * pad_x
     plot_h = height - 2 * pad_y
+    n = max(len(pts_c), len(pts_p))
 
-    def x(off: int) -> float:
-        return pad_x + plot_w * ((off - off_min) / off_span)
+    def x(i: int) -> float:
+        return pad_x + (plot_w * (i / (n - 1)) if n > 1 else plot_w / 2)
 
     def y(v: float) -> float:
         return pad_y + plot_h * (1 - (v - vmin) / vrange)
@@ -146,7 +141,7 @@ def comparison_line_chart(current: list[tuple[int, str, float]],
         grid += f'<line x1="{pad_x}" y1="{gy:.1f}" x2="{width - pad_x}" y2="{gy:.1f}" class="chart-grid"/>'
 
     # ── current line (solid + area fill) ──
-    cur_coords = [(x(off), y(v)) for off, _, v in pts_c]
+    cur_coords = [(x(i), y(v)) for i, (_, v) in enumerate(pts_c)]
     cur_line = " ".join(f"{px:.1f},{py:.1f}" for px, py in cur_coords)
     cur_area = ""
     if len(cur_coords) >= 2:
@@ -162,12 +157,11 @@ def comparison_line_chart(current: list[tuple[int, str, float]],
     cur_val = ""
     if cur_coords:
         last_cx, last_cy = cur_coords[-1]
-        # Clamp label above the dot so it doesn't collide with legend
         val_y = max(last_cy - 12, pad_y + 2)
-        cur_val = f'<text x="{last_cx:.1f}" y="{val_y:.1f}" class="chart-axis chart-value" text-anchor="middle">{_money(pts_c[-1][2])}</text>'
+        cur_val = f'<text x="{last_cx:.1f}" y="{val_y:.1f}" class="chart-axis chart-value" text-anchor="middle">{_money(pts_c[-1][1])}</text>'
 
     # ── previous line (dashed ghost, no fill) ──
-    prev_coords = [(x(off), y(v)) for off, _, v in pts_p]
+    prev_coords = [(x(i), y(v)) for i, (_, v) in enumerate(pts_p)]
     prev_line = " ".join(f"{px:.1f},{py:.1f}" for px, py in prev_coords)
     prev_dots = "".join(
         f'<circle cx="{px:.1f}" cy="{py:.1f}" r="1.8" '
@@ -178,8 +172,8 @@ def comparison_line_chart(current: list[tuple[int, str, float]],
     # ── axis labels ──
     lbl_max = f'<text x="{pad_x}" y="{pad_y - 6}" class="chart-axis">{_money(vmax - span*0.12)}</text>'
     lbl_min = f'<text x="{pad_x}" y="{height - 6}" class="chart-axis">{_money(vmin + span*0.12)}</text>'
-    lbl_first = f'<text x="{pad_x}" y="{height - 6}" class="chart-axis" text-anchor="start">{pts_c[0][1] if pts_c else ""}</text>'
-    lbl_last = f'<text x="{width - pad_x}" y="{height - 6}" class="chart-axis" text-anchor="end">{pts_c[-1][1] if pts_c else ""}</text>'
+    lbl_first = f'<text x="{pad_x}" y="{height - 6}" class="chart-axis" text-anchor="start">{pts_c[0][0] if pts_c else ""}</text>'
+    lbl_last = f'<text x="{width - pad_x}" y="{height - 6}" class="chart-axis" text-anchor="end">{pts_c[-1][0] if pts_c else ""}</text>'
 
     # ── legend: left-aligned to stay clear of the value label at far right ──
     legend_y = pad_y + 12
