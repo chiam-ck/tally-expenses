@@ -650,6 +650,37 @@ def balance_history() -> list[dict]:
     )
 
 
+def balance_history_window(days: int) -> list[dict]:
+    """Last *days* of liquid-cash snapshots (carry-forward per account).
+    Returns rows in ascending date order (oldest first) for charting."""
+    return db.query(
+        """
+        WITH dates AS (
+            SELECT DISTINCT snap_date AS d FROM balances
+            WHERE snap_date >= (SELECT MAX(snap_date) FROM balances) - %(days)s::int + 1
+        ),
+        asof AS (
+          SELECT d.d AS snap_date, a.type, a.currency,
+                 (SELECT b.balance FROM balances b
+                  WHERE b.account_id = a.account_id AND b.snap_date <= d.d
+                  ORDER BY b.snap_date DESC, b.id DESC
+                  LIMIT 1) AS balance
+          FROM dates d CROSS JOIN accounts a
+        )
+        SELECT snap_date,
+               COALESCE(SUM(CASE WHEN currency = 'SGD'
+                    THEN CASE WHEN type = 'asset' THEN balance ELSE -balance END END), 0) AS net_sgd,
+               COALESCE(SUM(CASE WHEN currency = 'MYR'
+                    THEN CASE WHEN type = 'asset' THEN balance ELSE -balance END END), 0) AS net_myr
+        FROM asof
+        WHERE balance IS NOT NULL
+        GROUP BY snap_date
+        ORDER BY snap_date ASC
+        """,
+        {"days": days},
+    )
+
+
 # ── recurring / rollover (jobs) ─────────────────────────────────────────────
 
 def active_recurring(today: date) -> list[dict]:

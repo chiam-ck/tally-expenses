@@ -354,6 +354,8 @@ button:disabled { opacity: .55; cursor: default; }
 .chart-value { fill: var(--text); font-weight: 700; }
 .chart-empty { fill: var(--muted); font-size: 13px; font-family: inherit; }
 .chart-dot { opacity: .85; }
+.chart-dot-ghost { opacity: .55; }
+.chart-legend { fill: var(--muted); font-size: 11px; font-family: inherit; }
 .donut-center { fill: var(--text); font-size: 22px; font-weight: 800; font-family: inherit; }
 .donut-sub { fill: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: .06em; font-family: inherit; }
 .bar { transition: opacity .15s; }

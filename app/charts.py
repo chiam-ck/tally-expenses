@@ -100,6 +100,113 @@ def line_chart(points: list[tuple[str, float]], width: int = 760, height: int = 
     )
 
 
+# ── comparison line chart: current vs previous period ─────────────────────────
+
+def comparison_line_chart(current: list[tuple[str, float]],
+                          previous: list[tuple[str, float]],
+                          width: int = 760, height: int = 220,
+                          pad_x: int = 16, pad_y: int = 22,
+                          cur_color: str = "#3b82f6", prev_color: str = "#94a3b8",
+                          cur_label: str = "Last 30 days",
+                          prev_label: str = "Previous 30 days") -> str:
+    """Two-line overlay: current period (solid + area fill) vs previous (dashed ghost).
+    X-axis is driven by the current series; previous series is mapped by index
+    position so the two periods overlay by relative day offset."""
+    pts_c = [(lbl, _f(v)) for lbl, v in current]
+    pts_p = [(lbl, _f(v)) for lbl, v in previous]
+    if not pts_c and not pts_p:
+        return _empty(width, height)
+
+    # Union value range so both lines share the same scale
+    all_vals = [v for _, v in pts_c] + [v for _, v in pts_p]
+    vmin, vmax = min(all_vals), max(all_vals)
+    span = (vmax - vmin) or (abs(vmax) or 1)
+    vmin -= span * 0.12
+    vmax += span * 0.12
+    vrange = (vmax - vmin) or 1
+
+    plot_w = width - 2 * pad_x
+    plot_h = height - 2 * pad_y
+    n = max(len(pts_c), len(pts_p))
+
+    def x(i: int) -> float:
+        return pad_x + (plot_w * (i / (n - 1)) if n > 1 else plot_w / 2)
+
+    def y(v: float) -> float:
+        return pad_y + plot_h * (1 - (v - vmin) / vrange)
+
+    # ── grid ──
+    grid = ""
+    for frac in (0.0, 0.5, 1.0):
+        gy = pad_y + plot_h * frac
+        grid += f'<line x1="{pad_x}" y1="{gy:.1f}" x2="{width - pad_x}" y2="{gy:.1f}" class="chart-grid"/>'
+
+    # ── current line (solid + area fill) ──
+    cur_coords = [(x(i), y(v)) for i, (_, v) in enumerate(pts_c)]
+    cur_line = " ".join(f"{px:.1f},{py:.1f}" for px, py in cur_coords)
+    cur_area = ""
+    cur_dots = ""
+    if len(cur_coords) >= 2:
+        cur_area = (f'<path d="M {cur_coords[0][0]:.1f},{height - pad_y:.1f} '
+                    + " ".join(f"L {px:.1f},{py:.1f}" for px, py in cur_coords)
+                    + f' L {cur_coords[-1][0]:.1f},{height - pad_y:.1f} Z" '
+                    f'fill="url(#cgrad)"/>')
+    cur_dots = "".join(
+        f'<circle cx="{px:.1f}" cy="{py:.1f}" r="{3.5 if i == len(cur_coords)-1 else 2.2}" '
+        f'fill="{cur_color}" class="{"chart-dot-last" if i == len(cur_coords)-1 else "chart-dot"}"/>'
+        for i, (px, py) in enumerate(cur_coords)
+    )
+    cur_val = ""
+    if cur_coords:
+        last_cx, last_cy = cur_coords[-1]
+        cur_val = f'<text x="{last_cx-4:.1f}" y="{last_cy-9:.1f}" class="chart-axis chart-value" text-anchor="end">{_money(pts_c[-1][1])}</text>'
+
+    # ── previous line (dashed ghost, no fill) ──
+    prev_coords = [(x(i), y(v)) for i, (_, v) in enumerate(pts_p)]
+    prev_line = " ".join(f"{px:.1f},{py:.1f}" for px, py in prev_coords)
+    prev_dots = "".join(
+        f'<circle cx="{px:.1f}" cy="{py:.1f}" r="1.8" '
+        f'fill="{prev_color}" class="chart-dot-ghost"/>'
+        for px, py in prev_coords
+    )
+
+    # ── axis labels ──
+    lbl_max = f'<text x="{pad_x}" y="{pad_y - 6}" class="chart-axis">{_money(vmax - span*0.12)}</text>'
+    lbl_min = f'<text x="{pad_x}" y="{height - 6}" class="chart-axis">{_money(vmin + span*0.12)}</text>'
+    lbl_first = f'<text x="{pad_x}" y="{height - 6}" class="chart-axis" text-anchor="start">{pts_c[0][0] if pts_c else ""}</text>'
+    lbl_last = f'<text x="{width - pad_x}" y="{height - 6}" class="chart-axis" text-anchor="end">{pts_c[-1][0] if pts_c else ""}</text>'
+
+    # ── legend ──
+    legend_y = pad_y - 4
+    legend = (
+        f'<text x="{width - pad_x}" y="{legend_y}" class="chart-legend" text-anchor="end">'
+        f'<tspan fill="{cur_color}">● {cur_label}</tspan>'
+        f'<tspan dx="10" fill="{prev_color}">○ {prev_label}</tspan>'
+        f'</text>'
+    )
+
+    return (
+        f'<svg viewBox="0 0 {width} {height}" class="chart" role="img" '
+        f'preserveAspectRatio="xMidYMid meet">'
+        f'<defs>'
+        f'<linearGradient id="cgrad" x1="0" y1="0" x2="0" y2="1">'
+        f'<stop offset="0%" stop-color="{cur_color}" stop-opacity="0.35"/>'
+        f'<stop offset="100%" stop-color="{cur_color}" stop-opacity="0.02"/>'
+        f'</linearGradient>'
+        f'</defs>'
+        f'{grid}'
+        f'{cur_area}'
+        f'<polyline points="{cur_line}" fill="none" stroke="{cur_color}" '
+        f'stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>'
+        f'{cur_dots}{cur_val}'
+        f'<polyline points="{prev_line}" fill="none" stroke="{prev_color}" '
+        f'stroke-width="1.8" stroke-dasharray="5,4" stroke-linejoin="round" stroke-linecap="round"/>'
+        f'{prev_dots}'
+        f'{lbl_max}{lbl_min}{lbl_first}{lbl_last}{legend}'
+        f'</svg>'
+    )
+
+
 # ── donut: spend by category ────────────────────────────────────────────────
 
 def _polar(cx: float, cy: float, r: float, deg: float) -> tuple[float, float]:

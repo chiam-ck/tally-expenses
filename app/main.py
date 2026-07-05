@@ -174,10 +174,19 @@ def page_dashboard(request: Request):
     m = queries.dashboard(t)
     fx = m["fx_rate"]
 
-    # 1) liquid-cash trend (line/area)
-    series = _liquid_cash_series(fx)
-    nw_points = [(r["snap_date"].strftime("%-d %b"), float(r["combined"])) for r in series]
-    nw_svg = charts.line_chart(nw_points)
+    # 1) liquid-cash trend: last 30 days vs previous 30 days
+    all_rows = queries.balance_history_window(60)  # ascending (oldest first)
+    # Split into two 30-day windows by index
+    mid = max(0, len(all_rows) - 30)
+    prev_rows = all_rows[:mid]
+    cur_rows = all_rows[mid:]
+    def _points(rows):
+        return [(r["snap_date"].strftime("%-d %b"), float(
+            (queries.d2(r["net_sgd"]) + queries.d2(r["net_myr"]) * fx).quantize(queries.TWO)
+        )) for r in rows]
+    cur_pts = _points(cur_rows)
+    prev_pts = _points(prev_rows)
+    nw_svg = charts.comparison_line_chart(cur_pts, prev_pts)
 
     # 2) spend by category (donut + legend), SGD-equivalent
     cat_segs, cat_legend = [], []
