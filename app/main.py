@@ -176,16 +176,24 @@ def page_dashboard(request: Request):
 
     # 1) liquid-cash trend: last 30 days vs previous 30 days
     all_rows = queries.balance_history_window(60)  # ascending (oldest first)
-    # Split into two 30-day windows by index
-    mid = max(0, len(all_rows) - 30)
-    prev_rows = all_rows[:mid]
-    cur_rows = all_rows[mid:]
-    def _points(rows):
-        return [(r["snap_date"].strftime("%-d %b"), float(
-            (queries.d2(r["net_sgd"]) + queries.d2(r["net_myr"]) * fx).quantize(queries.TWO)
-        )) for r in rows]
-    cur_pts = _points(cur_rows)
-    prev_pts = _points(prev_rows)
+    latest_date = all_rows[-1]["snap_date"] if all_rows else t
+    def _points(rows, cutoff_days):
+        """Return (day_offset, label, combined_sgd) for rows within cutoff_days ago.
+        day_offset is negative (e.g. -29..0 for current window)."""
+        pts = []
+        for r in rows:
+            offset = (r["snap_date"] - latest_date).days
+            if offset >= -cutoff_days:
+                pts.append((
+                    offset,
+                    r["snap_date"].strftime("%-d %b"),
+                    float((queries.d2(r["net_sgd"]) + queries.d2(r["net_myr"]) * fx).quantize(queries.TWO)),
+                ))
+        return pts
+    cur_pts = _points(all_rows, 30)   # offset -29..0
+    prev_pts = _points(all_rows, 60)  # offset -59..-30
+    # Filter previous to only the -59..-31 range (exclude anything in current window)
+    prev_pts = [(off, lbl, v) for off, lbl, v in prev_pts if off < -29]
     nw_svg = charts.comparison_line_chart(cur_pts, prev_pts)
 
     # 2) spend by category (donut + legend), SGD-equivalent
