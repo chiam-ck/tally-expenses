@@ -178,19 +178,20 @@ def page_dashboard(request: Request):
     all_rows = queries.balance_history_window(60)  # ascending (oldest first)
     latest_date = all_rows[-1]["snap_date"] if all_rows else t
     def _normalized(offset_start, offset_end):
-        """Return (label, value) pairs within [offset_start, offset_end]
-        normalized so both windows share the same 0..N-1 X-axis positions."""
-        pts = []
+        """Return 30-element list of (label, value) or None for missing days.
+        Position i corresponds to day offset (offset_start + i)."""
+        pts = [None] * 30
         for r in all_rows:
             off = (r["snap_date"] - latest_date).days
             if offset_start <= off <= offset_end:
-                pts.append((
+                idx = off - offset_start
+                pts[idx] = (
                     r["snap_date"].strftime("%-d %b"),
                     float((queries.d2(r["net_sgd"]) + queries.d2(r["net_myr"]) * fx).quantize(queries.TWO)),
-                ))
+                )
         return pts
-    cur_pts = _normalized(-29, 0)    # current 30 days → X positions 0..29
-    prev_pts = _normalized(-59, -30) # previous 30 days → X positions 0..29
+    cur_pts = _normalized(-29, 0)    # current 30 days → slots 0..29
+    prev_pts = _normalized(-59, -30) # previous 30 days → slots 0..29
     nw_svg = charts.comparison_line_chart(cur_pts, prev_pts)
 
     # 2) spend by category (donut + legend), SGD-equivalent

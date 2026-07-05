@@ -102,22 +102,30 @@ def line_chart(points: list[tuple[str, float]], width: int = 760, height: int = 
 
 # ── comparison line chart: current vs previous period ─────────────────────────
 
-def comparison_line_chart(current: list[tuple[str, float]],
-                          previous: list[tuple[str, float]],
+def comparison_line_chart(current: list,
+                          previous: list,
                           width: int = 760, height: int = 220,
                           pad_x: int = 16, pad_y: int = 22,
                           cur_color: str = "#3b82f6", prev_color: str = "#94a3b8",
                           cur_label: str = "Last 30 days",
                           prev_label: str = "Previous 30 days") -> str:
-    """Two-line overlay: both series share the same 0..N-1 X-axis (index-based)
-    so the previous period ghost overlays the current period shape directly."""
-    pts_c = [(lbl, _f(v)) for lbl, v in current]
-    pts_p = [(lbl, _f(v)) for lbl, v in previous]
+    """Two-line overlay. Each series is a 30-slot list of (label, value) or None.
+    X positioning uses the slot index so both windows align perfectly;
+    None slots are skipped (gaps in the line)."""
+    # Build index-labelled points, skipping None slots
+    def _build(series):
+        out = []
+        for i, slot in enumerate(series):
+            if slot is not None:
+                out.append((i, slot[0], _f(slot[1])))
+        return out
+    pts_c = _build(current)
+    pts_p = _build(previous)
     if not pts_c and not pts_p:
         return _empty(width, height)
 
     # Union value range so both lines share the same scale
-    all_vals = [v for _, v in pts_c] + [v for _, v in pts_p]
+    all_vals = [v for _, _, v in pts_c] + [v for _, _, v in pts_p]
     vmin, vmax = min(all_vals), max(all_vals)
     span = (vmax - vmin) or (abs(vmax) or 1)
     vmin -= span * 0.12
@@ -126,10 +134,10 @@ def comparison_line_chart(current: list[tuple[str, float]],
 
     plot_w = width - 2 * pad_x
     plot_h = height - 2 * pad_y
-    n = max(len(pts_c), len(pts_p))
+    n_slots = max(len(current), len(previous))
 
     def x(i: int) -> float:
-        return pad_x + (plot_w * (i / (n - 1)) if n > 1 else plot_w / 2)
+        return pad_x + (plot_w * (i / (n_slots - 1)) if n_slots > 1 else plot_w / 2)
 
     def y(v: float) -> float:
         return pad_y + plot_h * (1 - (v - vmin) / vrange)
@@ -140,42 +148,65 @@ def comparison_line_chart(current: list[tuple[str, float]],
         gy = pad_y + plot_h * frac
         grid += f'<line x1="{pad_x}" y1="{gy:.1f}" x2="{width - pad_x}" y2="{gy:.1f}" class="chart-grid"/>'
 
-    # ── current line (solid + area fill) ──
-    cur_coords = [(x(i), y(v)) for i, (_, v) in enumerate(pts_c)]
-    cur_line = " ".join(f"{px:.1f},{py:.1f}" for px, py in cur_coords)
-    cur_area = ""
-    if len(cur_coords) >= 2:
-        cur_area = (f'<path d="M {cur_coords[0][0]:.1f},{height - pad_y:.1f} '
-                    + " ".join(f"L {px:.1f},{py:.1f}" for px, py in cur_coords)
-                    + f' L {cur_coords[-1][0]:.1f},{height - pad_y:.1f} Z" '
-                    f'fill="url(#cgrad)"/>')
-    cur_dots = "".join(
-        f'<circle cx="{px:.1f}" cy="{py:.1f}" r="{3.5 if i == len(cur_coords)-1 else 2.2}" '
-        f'fill="{cur_color}" class="{"chart-dot-last" if i == len(cur_coords)-1 else "chart-dot"}"/>'
-        for i, (px, py) in enumerate(cur_coords)
-    )
-    cur_val = ""
-    if cur_coords:
-        last_cx, last_cy = cur_coords[-1]
-        val_y = max(last_cy - 12, pad_y + 2)
-        cur_val = f'<text x="{last_cx:.1f}" y="{val_y:.1f}" class="chart-axis chart-value" text-anchor="middle">{_money(pts_c[-1][1])}</text>'
+    def _render_line(pts, color, *, dashed=False, fill_grad=None):
+        """Render one line: returns (polyline, dots, area_path)."""
+        coords = [(x(i), y(v)) for i, _, v in pts]
+        if len(coords) < 2:
+            poly = " ".join(f"{px:.1f},{py:.1f}" for px, py in coords)
+            dots = "".join(
+                f'<circle cx="{px:.1f}" cy="{py:.1f}" r="{3.5 if i == len(coords)-1 else 2.2}" '
+                f'fill="{color}" class="{"chart-dot-last" if i == len(coords)-1 else "chart-dot"}"/>'
+                for i, (px, py) in enumerate(coords)
+            )
+            return poly, dots, ""
+        # Build polyline segments (break on slot gaps)
+        segments = []
+        seg = [coords[0]]
+        for j in range(1, len(pts)):
+            if pts[j][0] == pts[j-1][0] + 1:
+                seg.append(coords[j])
+            else:
+                segments.append(seg)
+                seg = [coords[j]]
+        segments.append(seg)
+        all_polys = " ".join(
+            " ".join(f"{px:.1f},{py:.1f}" for px, py in seg)
+            for seg in segments
+        )
+        stroke_dash = 'stroke-dasharray="5,4"' if dashed else ""
+        poly = f'<polyline points="{all_polys}" fill="none" stroke="{color}" stroke-width="{"1.8" if dashed else "2.5"}" {stroke_dash} stroke-linejoin="round" stroke-linecap="round"/>'
+        dot_cls = "chart-dot-ghost" if dashed else "chart-dot"
+        dot_cls_last = "chart-dot-ghost" if dashed else "chart-dot-last"
+        dots = "".join(
+            f'<circle cx="{px:.1f}" cy="{py:.1f}" r="{"1.8" if dashed else (3.5 if j == len(pts)-1 else 2.2)}" '
+            f'fill="{color}" class="{dot_cls_last if j == len(pts)-1 else dot_cls}"/>'
+            for j, (px, py) in enumerate(coords)
+        )
+        area = ""
+        if fill_grad:
+            area = (f'<path d="M {coords[0][0]:.1f},{height - pad_y:.1f} '
+                    + " ".join(f"L {px:.1f},{py:.1f}" for px, py in coords)
+                    + f' L {coords[-1][0]:.1f},{height - pad_y:.1f} Z" '
+                    f'fill="url(#{fill_grad})"/>')
+        return poly, dots, area
 
-    # ── previous line (dashed ghost, no fill) ──
-    prev_coords = [(x(i), y(v)) for i, (_, v) in enumerate(pts_p)]
-    prev_line = " ".join(f"{px:.1f},{py:.1f}" for px, py in prev_coords)
-    prev_dots = "".join(
-        f'<circle cx="{px:.1f}" cy="{py:.1f}" r="1.8" '
-        f'fill="{prev_color}" class="chart-dot-ghost"/>'
-        for px, py in prev_coords
-    )
+    cur_poly, cur_dots, cur_area = _render_line(pts_c, cur_color, fill_grad="cgrad")
+    prev_poly, prev_dots, _ = _render_line(pts_p, prev_color, dashed=True)
+
+    # ── value label on last current point ──
+    cur_val = ""
+    if pts_c:
+        last_cx, last_cy = x(pts_c[-1][0]), y(pts_c[-1][2])
+        val_y = max(last_cy - 12, pad_y + 2)
+        cur_val = f'<text x="{last_cx:.1f}" y="{val_y:.1f}" class="chart-axis chart-value" text-anchor="middle">{_money(pts_c[-1][2])}</text>'
 
     # ── axis labels ──
     lbl_max = f'<text x="{pad_x}" y="{pad_y - 6}" class="chart-axis">{_money(vmax - span*0.12)}</text>'
     lbl_min = f'<text x="{pad_x}" y="{height - 18}" class="chart-axis">{_money(vmin + span*0.12)}</text>'
-    lbl_first = f'<text x="{pad_x}" y="{height - 6}" class="chart-axis" text-anchor="start">{pts_c[0][0] if pts_c else ""}</text>'
-    lbl_last = f'<text x="{width - pad_x}" y="{height - 6}" class="chart-axis" text-anchor="end">{pts_c[-1][0] if pts_c else ""}</text>'
+    lbl_first = f'<text x="{pad_x}" y="{height - 6}" class="chart-axis" text-anchor="start">{pts_c[0][1] if pts_c else ""}</text>'
+    lbl_last = f'<text x="{width - pad_x}" y="{height - 6}" class="chart-axis" text-anchor="end">{pts_c[-1][1] if pts_c else ""}</text>'
 
-    # ── legend: left-aligned to stay clear of the value label at far right ──
+    # ── legend ──
     legend_y = pad_y + 12
     legend = (
         f'<text x="{pad_x}" y="{legend_y}" class="chart-legend" text-anchor="start">'
@@ -195,11 +226,9 @@ def comparison_line_chart(current: list[tuple[str, float]],
         f'</defs>'
         f'{grid}'
         f'{cur_area}'
-        f'<polyline points="{cur_line}" fill="none" stroke="{cur_color}" '
-        f'stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>'
+        f'{cur_poly}'
         f'{cur_dots}{cur_val}'
-        f'<polyline points="{prev_line}" fill="none" stroke="{prev_color}" '
-        f'stroke-width="1.8" stroke-dasharray="5,4" stroke-linejoin="round" stroke-linecap="round"/>'
+        f'{prev_poly}'
         f'{prev_dots}'
         f'{lbl_max}{lbl_min}{lbl_first}{lbl_last}{legend}'
         f'</svg>'
