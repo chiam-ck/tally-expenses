@@ -171,7 +171,7 @@ def comparison_line_chart(current: list[tuple[str, float]],
 
     # ── axis labels ──
     lbl_max = f'<text x="{pad_x}" y="{pad_y - 6}" class="chart-axis">{_money(vmax - span*0.12)}</text>'
-    lbl_min = f'<text x="{pad_x}" y="{height - 6}" class="chart-axis">{_money(vmin + span*0.12)}</text>'
+    lbl_min = f'<text x="{pad_x}" y="{height - 18}" class="chart-axis">{_money(vmin + span*0.12)}</text>'
     lbl_first = f'<text x="{pad_x}" y="{height - 6}" class="chart-axis" text-anchor="start">{pts_c[0][0] if pts_c else ""}</text>'
     lbl_last = f'<text x="{width - pad_x}" y="{height - 6}" class="chart-axis" text-anchor="end">{pts_c[-1][0] if pts_c else ""}</text>'
 
