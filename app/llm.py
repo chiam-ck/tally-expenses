@@ -42,7 +42,7 @@ SYSTEM_PROMPT = (
     "object: {\"amount\": number, \"currency\": one of "
     f"{fx.CODES}, \"category\": one of "
     f"{CATEGORIES}, \"account\": one of {ACCOUNTS}, "
-    "\"flow\": one of [\"expense\", \"income\"], "
+    "\"flow\": one of [\"expense\", \"income\", \"transfer\"], "
     "\"note\": short string}}. "
     "Rule: Grab/Gojek/Tada/taxi/MRT/bus/ezlink/fuel/parking => Transport, UNLESS the "
     "text clearly means food (e.g. GrabFood). Default account is CASH_SGD. "
@@ -50,7 +50,9 @@ SYSTEM_PROMPT = (
     "euro); default SGD if none is mentioned. "
     "Flow: default is \"expense\". Use \"income\" for salary, received money, "
     "refunds, cashback, dividends, interest earned, gifts received, or any money "
-    "coming in. Reply with JSON only, no prose."
+    "coming in. Use \"transfer\" ONLY for moving money between your own accounts "
+    "(credit card payments, bank transfers to another of your accounts, moving "
+    "money between SGD/MYR). Reply with JSON only, no prose."
 )
 
 # ── regex fallback ──────────────────────────────────────────────────────────
@@ -76,6 +78,11 @@ _SUBS_KW = re.compile(
 _INCOME_KW = re.compile(
     r"\b(salary|paycheck|received|refund|cashback|dividend|interest\s*earned|"
     r"gift\s*received|bonus|side\s*hustle|freelance|reimburse)\b",
+    re.I,
+)
+_TRANSFER_KW = re.compile(
+    r"\b(transfer|pay\s*(credit\s*card|cc)|cc\s*payment|credit\s*card\s*payment|"
+    r"move\s*(to|from|money)|send\s*(to|money)|top\s*up|balik)",
     re.I,
 )
 
@@ -122,7 +129,12 @@ def regex_parse(text: str) -> dict:
     # Explicit currency in the text wins; else derive from the account.
     currency = fx.detect_currency(text) or currency_for_account(account)
 
-    flow = "income" if _INCOME_KW.search(text) else "expense"
+    if _INCOME_KW.search(text):
+        flow = "income"
+    elif _TRANSFER_KW.search(text):
+        flow = "transfer"
+    else:
+        flow = "expense"
 
     return {
         "amount": amount,
@@ -175,7 +187,7 @@ def _coerce(obj: dict, text: str) -> dict:
         currency = fx.detect_currency(text) or currency_for_account(account)
 
     flow = obj.get("flow")
-    if flow not in ("expense", "income"):
+    if flow not in ("expense", "income", "transfer"):
         flow = fallback["flow"]
 
     return {
