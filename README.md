@@ -1,285 +1,112 @@
-# Tally — self-hosted expense & liquid-cash tracker
+# Tally — personal expense & cash tracker
 
-> *Your money, counted.* One private FastAPI service: a dashboard (liquid-cash hero,
-> charts), balance capture, a natural-language transaction logger, multi-currency with
-> live FX, recurring charges, history with filters, and account settings — backed by your
-> own Postgres. A self-hosted alternative to a finance spreadsheet.
+> *Your money, counted.* A self-hosted FastAPI app that replaces the spreadsheet.
+> Dashboard, natural-language logging, multi-currency FX, recurring charges,
+> and an MCP sidecar so your AI agent can log expenses too.
 
-**Topology:** the app runs on one host (`app-host` in these docs) and reaches Postgres on
-another (`db-host`) over a Tailscale tailnet via `DATABASE_URL`. Designed to live entirely
-inside the tailnet (no public exposure) with a single-user login gate on top.
-
-> **Note:** `seed.sql` ships **dummy sample data**, not real finances. Replace it with your own.
-
-## Architecture
+Runs on your own machine, backed by your own Postgres, accessible only over
+Tailscale. No SaaS, no sharing, no ads.
 
 ```mermaid
 flowchart LR
-    user([User])
-    hermes["Hermes Agent<br/>(AI assistant)"]
-
-    subgraph tailnet["Tailscale tailnet · no public exposure"]
-        subgraph apphost["app-host"]
-            web["Web GUI<br/>dashboard"]
-            tally["Tally<br/>FastAPI + APScheduler"]
-            mcp["MCP service<br/>tally_mcp sidecar"]
-        end
-        pg[("Postgres<br/>db-host")]
-    end
-
-    user -->|browser| web
-    user -->|chat| hermes
-    hermes -->|MCP tools over<br/>Streamable HTTP, token-guarded| mcp
-    web --> tally
-    mcp --> tally
-    tally -->|SQL via DATABASE_URL| pg
+    you([You]) --> web[Dashboard]
+    you --> agent[Hermes Agent]
+    agent -->|MCP| sidecar[mcp sidecar :9000]
+    web --> app[Tally :8000]
+    sidecar --> app
+    app --> pg[(Postgres)]
 ```
 
-## Core model — stocks & flows
+## What it tracks
 
-- **`balances`** = *stocks*: how much money exists, captured by the user (one row per
-  account per day). Source of truth for net cash.
-- **`transactions`** = *flows*: where money went / came from, append-only ledger.
-  Every insert or delete **automatically adjusts the latest balance snapshot** for the
-  affected account (expense subtracts from assets / adds to liabilities; income does
-  the reverse). You can still manually capture a balance at any time — it just becomes
-  the new baseline.
+Two kinds of money data, kept in sync automatically:
+
+- **Balances** — how much you have *right now* per account (stocks)
+- **Transactions** — where money went or came from (flows)
+
+Log a transaction → the latest balance auto-adjusts. Capture a manual balance →
+it becomes the new baseline. No reconciling.
+
+Transactions use three flows: `expense`, `income`, or `transfer`. The dashboard
+spend totals only count `expense` — so CC payments and account-to-account
+transfers (use `transfer`) never inflate your spending.
+
+## Quick start
+
+```bash
+# 1. Postgres (separate host, reachable over Tailscale)
+createdb expenses
+
+# 2. Clone, configure, launch
+git clone https://github.com/chiam-ck/tally-expenses.git
+cd tally-expenses
+cp .env.example .env   # edit: DATABASE_URL, API_KEY, auth creds
+docker compose up -d
+```
+
+Open `http://<your-host>:8000` from any Tailscale device. Point your phone at
+it → Add to Home Screen for an app-like icon.
 
 ## Stack
 
-Python 3.12 · FastAPI + Uvicorn · psycopg 3 (`ConnectionPool`, sync) · Jinja2 ·
-APScheduler (started in the FastAPI lifespan) · httpx. Timezone **Asia/Singapore** for
-all date logic. Money is `numeric(14,2)`, formatted to 2 dp.
+Python 3.12 · FastAPI + Uvicorn · psycopg 3 · Jinja2 · APScheduler · httpx
+All charts are dependency-free server-rendered SVG. Timezone: Asia/Singapore.
 
-## Layout
+## API at a glance
 
-```
-app/
-  main.py        FastAPI app, routes, auth middleware, lifespan (pool + scheduler)
-  auth.py        single-user login cookie + API_KEY gate for /api/*
-  db.py          connection pool + query helpers (normalizes the DSN)
-  queries.py     all SQL + dashboard metric computation
-  jobs.py        recurring poster, monthly rollover, weekly digest, FX update
-  fx.py          currency list, live FX fetch, NL currency detection
-  llm.py         LLM parse (any OpenAI-compatible endpoint) + regex fallback
-  charts.py      dependency-free server-rendered SVG (line/donut/bar)
-  templates/     base, dashboard, history, settings, login + Balance/Log modals
-  static/        style.css (dark theme)
-tally_mcp/       optional MCP sidecar for AI agents (Dockerfile.mcp → mcp service)
-schema.sql  seed.sql  requirements.txt  Dockerfile  docker-compose.yml  .env.example
-```
-
-**Docs:** [`ARCHITECTURE.md`](ARCHITECTURE.md) — system design, components, request
-flows, trust boundaries · [`SEMANTIC_LAYER.md`](SEMANTIC_LAYER.md) — domain model for
-AI agents · [`SPEC.md`](SPEC.md) — original product spec.
-
-## Pages & API
-
-**Balance** and **Log** are in-screen modals (popups) reachable from the topbar on every
-page — not separate pages — so capturing a balance or logging a spend never navigates away
-from the dashboard. On success they refresh so the dashboard/history update.
-
-| Route | What |
+| Endpoint | What it does |
 |---|---|
-| `GET /` | Dashboard: liquid-cash hero + trend line, spend-by-category donut, daily-spend bars, stat tiles (total/days/burn/projection), latest balances & category tables. Charts are dependency-free server-rendered SVG. Responsive (mobile + desktop) |
-| `GET /history` | Browse history with **filters** (search note/id, account, category, flow, date range) and **pagination** (25/50/100 per page); plus a liquid-cash-by-snapshot-date table |
-| `GET /settings` | Settings area (tabs). Redirects to **Accounts** |
-| `GET /settings/accounts` | Account maintenance: add/edit/activate/deactivate. Delete is guarded — accounts referenced by transactions/balances/recurring can't be hard-deleted (deactivate instead) |
-| `GET /settings/recurring` | Manage recurring charges (add/edit/delete/pause). **Monthly** (every month on the day), **yearly** (once, in the chosen month), or **every-30-days** (SaaS/Netflix-style — renews 30 days after the last subscription date). Day 30/31 falls back to month-end. Each row shows its estimated next renewal |
-| `GET /settings/fx` | Exchange-rates: every currency's `to_sgd` + inverse, source, last-updated, and a **Refresh now** button |
-| `GET /balance` | Redirects to `/?open=balance` — opens the **Balance** modal (kept for deep links / Home-Screen shortcuts) |
-| `GET /log` | Redirects to `/?open=log` — opens the **Log** modal |
-| `POST /api/balance` | `{rows:[{account_id,balance,currency?}]}` → upsert today's snapshot → `{ok,rows}` |
-| `POST /api/txn` | `{account_id,category,amount,currency?,flow?,note?}` → append + adjust balance → `{ok,txn_id}` |
-| `DELETE /api/txn/{txn_id}` | Delete one transaction + reverse its balance adjustment → `{ok,deleted}` (404 if missing) |
-| `POST /api/parse` | `{text}` → `{amount,currency,category,account,flow,note}`; OpenAI-compatible LLM with regex fallback, never 5xx. Detects expense vs income, auto-detects currency from text (symbols/codes/words; SGD default) |
-| `GET /api/dashboard` | JSON of all dashboard metrics (SGD-equivalent) |
-| `GET /api/fx` | Current FX rates (`to_sgd` per currency) + supported currency list |
-| `GET /api/reference` | Live `accounts` + `categories` + `currencies` (valid values for writes; for agents) |
-| `GET /api/transactions` | Filtered txn list for any date range + `expense_total_sgd` (`date_from`/`date_to`/`account`/`category`/`flow`/`q`/`limit`); per-day spend, since the dashboard is MTD-only |
-| `POST /api/jobs/{name}` | Manually trigger `recurring_poster` / `monthly_rollover` / `weekly_digest` / `fx_update` (ops/smoke) |
+| `GET /` | Dashboard: liquid cash, spend donut, daily bars, burn rate, projection |
+| `GET /history` | Browse & filter all transactions with pagination |
+| `POST /api/parse` | "grab to airport 24" → structured fields (LLM + regex fallback) |
+| `POST /api/txn` | Record a transaction (`expense` / `income` / `transfer`) |
+| `DELETE /api/txn/{id}` | Undo a mistaken log |
+| `POST /api/balance` | Capture today's account balances |
+| `GET /api/dashboard` | All dashboard metrics as JSON |
+| `GET /api/reference` | Live accounts, categories, currencies (for agents) |
+| `GET /api/transactions` | Filtered list with `expense_total_sgd` |
+| `GET /api/fx` | Exchange rates (`to_sgd` per currency) |
 
-(Old `/fx` and `/recurring` redirect to their `/settings/...` homes.)
+All `/api/*` routes accept `Authorization: Bearer <API_KEY>` for programmatic
+access — no login cookie needed.
 
-## Agent / MCP access
+## Scheduled jobs
 
-The same JSON API doubles as an integration surface for external AI agents:
-
-- **Auth:** set `API_KEY` in `.env`, then send `Authorization: Bearer <key>` (or
-  `X-API-Key: <key>`) on `/api/*` — no browser cookie needed. See **Security** below.
-- **MCP server:** [`tally_mcp/`](tally_mcp/) wraps the endpoints as MCP tools
-  (`get_dashboard`, `list_reference`, `list_transactions`, `get_fx_rates`, `parse_expense`,
-  `log_transaction`, `log_income`, `log_from_text`, `delete_transaction`, `set_balance`)
-  for Claude Desktop / Claude Code / any MCP host. It runs as the `mcp` compose service
-  (Streamable HTTP on `:9000/mcp`), guarded by `MCP_AUTH_TOKEN` — agents connect with
-  `Authorization: Bearer <token>` and the sidecar reaches the app with `API_KEY` internally.
-  See `tally_mcp/README.md` for client config.
-- **Semantic layer:** [`SEMANTIC_LAYER.md`](SEMANTIC_LAYER.md) is the domain context an
-  agent should read first — stocks vs flows, liquid cash, burn, FX, the write contracts,
-  and guardrails.
-
-```bash
-# smoke-test the API key (app)
-curl -H "Authorization: Bearer $API_KEY" http://localhost:8000/api/reference
-```
-
-## Scheduled jobs (Asia/Singapore)
-
-- **`recurring_poster`** — daily **00:10**. Posts each due recurring template to
-  `transactions`. Idempotent via the partial unique index `(source, txn_date) WHERE
-  source LIKE 'recurring:%'` (`ON CONFLICT DO NOTHING`).
-- **`monthly_rollover`** — **1st** of month **00:05**. Carries each account's latest
-  balance forward to a 1st-of-month snapshot (`source='rollover'`), upsert do-nothing.
-- **`weekly_digest`** — **Mon 07:00**. Emails the dashboard summary via the Resend API.
-  No-op if `RESEND_API_KEY` is unset. Read-only.
-- **`fx_update`** — daily **00:20** (and once on boot). Fetches live FX rates from
-  `open.er-api.com` (keyless, base SGD) into the `fx_rates` table. Keeps the last/fallback
-  rates on any failure — never blocks startup or the app.
-
-## Currencies & FX
-
-Supported: SGD, MYR, USD, EUR, GBP, JPY, CNY, HKD, TWD, THB, IDR, AUD, KRW, INR, PHP, VND.
-
-- Transactions can be logged in **any** supported currency (SGD default). The NL parser
-  auto-detects a currency from the text — symbols (`$`/`¥`/`€`/`£`/`฿`/`RM`…), ISO codes
-  (`usd`, `myr`…), or words (`ringgit`, `baht`, `yen`, `euro`…).
-- Rates are stored as `to_sgd` in `fx_rates` (created + seeded automatically at startup —
-  no `schema.sql` change). Dashboard liquid cash and spend totals are shown **SGD-equivalent**
-  using these rates; the category table shows the native-currency breakdown where it differs.
-- `app_config.myr_to_sgd` remains the static fallback; once `fx_update` runs, the live
-  MYR→SGD rate is used (so the headline liquid cash reflects market FX, not the fixed 0.30).
-
-## LLM parsing (any OpenAI-compatible provider)
-
-The natural-language logger calls a standard **OpenAI-style `POST /v1/chat/completions`**
-endpoint — it is **not** tied to LiteLLM (the `LITELLM_*` env names are just historical).
-Point `LITELLM_URL` / `LITELLM_KEY` / `LITELLM_MODEL` at whatever you like:
-
-| Provider | `LITELLM_URL` | `LITELLM_MODEL` (example) |
+| Job | When | Does |
 |---|---|---|
-| OpenAI | `https://api.openai.com/v1/chat/completions` | `gpt-4o-mini` |
-| OpenRouter | `https://openrouter.ai/api/v1/chat/completions` | `openai/gpt-4o-mini` |
-| Groq | `https://api.groq.com/openai/v1/chat/completions` | `llama-3.3-70b-versatile` |
-| Together | `https://api.together.xyz/v1/chat/completions` | `meta-llama/Llama-3.3-70B-Instruct-Turbo` |
-| LiteLLM proxy | `http://<host>:4000/v1/chat/completions` | (whatever the proxy exposes) |
-| Ollama (local, no key) | `http://<host>:11434/v1/chat/completions` | `llama3.1` |
-| vLLM (self-hosted) | `http://<host>:8000/v1/chat/completions` | (served model id) |
+| Recurring poster | Daily 00:10 | Posts due subscriptions/bills to transactions |
+| Monthly rollover | 1st, 00:05 | Carries latest balances forward to the new month |
+| FX update | Daily 00:20 | Fetches live rates from open.er-api.com |
+| Weekly digest | Mon 07:00 | Emails a dashboard summary via Resend (optional) |
 
-The request uses `temperature:0` + `response_format:{type:"json_object"}`. If the endpoint
-is unreachable or returns junk, parsing **falls back to a local regex** so `/log` never
-blocks on the LLM. Leave `LITELLM_KEY` blank to skip the LLM entirely (regex only).
+All idempotent. All fail-soft — a dead FX source keeps the last known rates.
 
----
+## Agent access (MCP)
 
-## Deploy
+The `tally-mcp` sidecar exposes every API endpoint as MCP tools so your AI
+agent (Hermes, Claude, etc.) can read and write your finances:
 
-### 0. Prerequisite — Postgres on db-host
+`get_dashboard` · `list_reference` · `list_transactions` · `get_fx_rates`
+`parse_expense` · `log_transaction` · `log_from_text` · `delete_transaction`
+`set_balance`
 
-Create the DB/role and allow connections from app-host over the tailnet:
-
-- `postgresql.conf`: `listen_addresses` includes the tailscale interface (or `*`).
-- `pg_hba.conf`: a line permitting app-host's tailnet IP (or the `100.64.0.0/10`
-  CGNAT range) to the `expenses` DB.
-
-```sql
-CREATE ROLE expenses LOGIN PASSWORD 'choose-a-strong-password';
-CREATE DATABASE expenses OWNER expenses;
-```
-
-### 1. Configure env (on app-host)
-
-```bash
-cp .env.example .env
-# edit .env: set DATABASE_URL to db-host's tailnet host, LITELLM_*, RESEND_*
-```
-
-`DATABASE_URL` must point at **db-host's tailnet host** (e.g.
-`db-host.<tailnet>.ts.net:5432` or its `100.x` address) — never `localhost` /
-`host.docker.internal` (Postgres is on a different machine).
-
-### 2. Load schema + seed against db-host (run from app-host)
-
-```bash
-psql "$DATABASE_URL" -f schema.sql && psql "$DATABASE_URL" -f seed.sql
-```
-
-(If your `DATABASE_URL` carries a `+asyncpg` driver suffix for the app, strip it for
-`psql`: use a plain `postgresql://...` DSN here.)
-
-### 3. Run the app (on app-host)
-
-```bash
-./deploy.sh
-```
-
-This stamps the current git tag into `.env` as `APP_VERSION` (shown in the app footer),
-then builds and starts the containers. `docker-compose.yml` runs the app + optional MCP
-sidecar with `network_mode: host` so the container reaches `*.ts.net` through app-host's
-tailscale interface. Uvicorn binds `0.0.0.0:8000`.
-
-```bash
-docker compose logs -f app     # watch startup; confirms scheduler jobs registered
-```
-
-### 4. Access (already private to the tailnet)
-
-Open from any tailnet device — **do NOT use `tailscale funnel`**:
-
-```
-http://app-host.<tailnet>.ts.net:8000/
-# or the host's 100.x tailnet address:
-http://100.x.y.z:8000/
-```
-
-**Point a phone at it:** connect the phone to the tailnet (Tailscale app), open the
-app-host URL above, then **Share → Add to Home Screen** for an app-like icon.
-
-**Optional HTTPS + clean hostname** (nice-to-have, not required):
-
-```bash
-tailscale serve https / http://localhost:8000
-# → https://app-host.<tailnet>.ts.net/   (still tailnet-only; never `funnel`)
-```
+Agents authenticate with `MCP_AUTH_TOKEN`; the sidecar holds the API key
+internally. Two distinct secrets, no key leakage.
 
 ## Security
 
-- **Login gate** (single-user). All pages and `/api/*` require a session except the
-  login flow and `/static/*`. Unauthenticated HTML requests redirect to `/login`; API
-  requests get `401`. Credentials come from env (`AUTH_USERNAME` / `AUTH_PASSWORD`); the
-  session cookie is HMAC-signed with `SECRET_KEY` (HttpOnly, SameSite=Lax, 30-day). Sign
-  out via the topbar **Sign out** link. Changing the password or `SECRET_KEY` invalidates
-  existing sessions.
-- **API key** (programmatic access). Set `API_KEY` in env to let non-browser clients
-  (external AI agents, the [MCP server](tally_mcp/), scripts) reach `/api/*` without the
-  login cookie — send it as `Authorization: Bearer <key>` or `X-API-Key: <key>`. Compared
-  with constant-time HMAC. Blank `API_KEY` disables the bypass (cookie only). Browser pages
-  still require the login cookie regardless.
-- **MCP endpoint token** (agent surface). The optional `mcp` sidecar exposes the API as MCP
-  tools on its own port (`:9000`). It authenticates to the app with `API_KEY` *internally*,
-  and the endpoint itself is guarded by `MCP_AUTH_TOKEN` (Bearer), checked before any MCP
-  traffic — so agents hold the MCP token and never see the API key. Two distinct secrets;
-  rotate either via `.env` + `docker compose up -d`. Blank `MCP_AUTH_TOKEN` leaves the
-  endpoint open (tailnet-only). Like the app, the sidecar is never Funnel-exposed.
-- No public exposure (Serve, not Funnel). The tailnet is still the primary boundary; the
-  login / API key / MCP token are layers on top.
-- All SQL is parameterized (psycopg placeholders); no string interpolation into queries.
-- `account_id` and `category` are validated against the DB on every write; unknown values
-  are rejected with 400.
-- `LITELLM_KEY` / `RESEND_API_KEY` live in env only.
+- **Tailscale-only** — no public exposure (Serve, never Funnel)
+- **Login gate** — single-user HMAC-signed cookie for browser access
+- **API key** — Bearer token for programmatic `/api/*` access
+- **MCP token** — separate gate for the agent sidecar
+- **Parameterized SQL** — no string interpolation into queries
+- **Write validation** — account/category checked against DB on every write
 
-## Acceptance (spec §13)
+## Docs
 
-1. Seed loads clean; with latest snapshot 2026-06-03 the dashboard shows Net cash SGD
-   **11,320.00**, MYR **5,150.00**, Combined **12,865.00** at the seed FX 0.30. (Once
-   `fx_update` runs, Combined uses the live MYR→SGD rate instead of 0.30.) *(`seed.sql`
-   is dummy sample data, not real finances.)*
-2. Saving the balance form twice in one day → exactly one row per account per day (upsert).
-3. `grab to office 12` → Transport / CASH_SGD / 12 / expense, appended to `transactions` and reflected on CASH_SGD balance.
-4. Recurring poster posts exactly one row per due template per day; re-running posts nothing.
-5. Avg daily burn uses discretionary categories only; projection = booked MTD + burn ×
-   remaining days.
-6. With the LLM endpoint down, `/log` still parses (regex) and logs.
-7. Reachable from a tailnet device at app-host's address; not reachable publicly.
+- [`ARCHITECTURE.md`](ARCHITECTURE.md) — system design, request flows, trust boundaries
+- [`SEMANTIC_LAYER.md`](SEMANTIC_LAYER.md) — domain model for AI agents
+- [`SPEC.md`](SPEC.md) — original build spec
 
 ## License
 
