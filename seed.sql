@@ -27,7 +27,8 @@ INSERT INTO categories (name, is_discretionary, sort_order) VALUES
  ('Tax',false,7),
  ('Food',true,8),
  ('Family',false,9),
- ('Other',true,10)
+ ('Other',true,10),
+ ('Transfer',false,12)
 ON CONFLICT (name) DO NOTHING;
 
 -- ── Recurring templates (sample values) ────────────────────────────────────
