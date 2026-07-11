@@ -29,7 +29,7 @@ LITELLM_MODEL = os.environ.get("LITELLM_MODEL", "openrouter/google/gemma-4-26b-a
 # Valid sets are validated again at the DB layer; these are parse-time defaults.
 CATEGORIES = [
     "Allowance", "Housing", "Insurance", "Telco", "Transport",
-    "Subscriptions", "Tax", "Food", "Family", "Other",
+    "Subscriptions", "Tax", "Food", "Family", "Shopping", "Other",
 ]
 ACCOUNTS = [
     "DBS", "OCBC", "MBB_ISAAVY", "WISE", "PAYLAH", "CASH_SGD",
@@ -45,7 +45,10 @@ SYSTEM_PROMPT = (
     "\"flow\": one of [\"expense\", \"income\", \"transfer\"], "
     "\"note\": short string}}. "
     "Rule: Grab/Gojek/Tada/taxi/MRT/bus/ezlink/fuel/parking => Transport, UNLESS the "
-    "text clearly means food (e.g. GrabFood). Default account is CASH_SGD. "
+    "text clearly means food (e.g. GrabFood). "
+    "Rule: shopee/lazada/amazon/buy/bought/ntuc/fairprice/groceries/"
+    "daiso/muji/ikea/dept store/mall => Shopping (discretionary). "
+    "Default account is CASH_SGD. "
     "Currency: use the one named in the text (e.g. usd, rm/ringgit, yen, baht, "
     "euro); default SGD if none is mentioned. "
     "Flow: default is \"expense\". Use \"income\" for salary, received money, "
@@ -78,6 +81,12 @@ _SUBS_KW = re.compile(
 _INCOME_KW = re.compile(
     r"\b(salary|paycheck|received|refund|cashback|dividend|interest\s*earned|"
     r"gift\s*received|bonus|side\s*hustle|freelance|reimburse)\b",
+    re.I,
+)
+_SHOPPING_KW = re.compile(
+    r"\b(shop|buy|bought|purchase|shopee|lazada|amazon|daiso|muji|uniqlo|"
+    r"deca?thlon|ikea|watsons|guardian|ntuc|fairprice|cold\s*storage|"
+    r"grocer|department\s*store|mall|retail)\b",
     re.I,
 )
 _TRANSFER_KW = re.compile(
@@ -117,6 +126,8 @@ def regex_parse(text: str) -> dict:
         category = "Transport"
     elif _SUBS_KW.search(text):
         category = "Subscriptions"
+    elif _SHOPPING_KW.search(text):
+        category = "Shopping"
     else:
         category = "Other"
 
