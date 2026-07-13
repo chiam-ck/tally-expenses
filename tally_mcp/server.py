@@ -150,13 +150,19 @@ def log_transaction(
     account_id: str,
     category: str,
     amount: float,
+    to_account_id: str | None = None,
     currency: str | None = None,
     flow: str = "expense",
     note: str = "",
 ) -> dict:
     """Record a transaction (a money flow). `flow` is one of expense/income/transfer.
     `account_id` and `category` must be valid (see list_reference). `currency`
-    defaults to the account's currency if omitted. Returns {ok, txn_id}."""
+    defaults to the account's currency if omitted.
+
+    For transfers (flow=transfer), pass `to_account_id` to create a double-entry:
+    debits `account_id` and credits `to_account_id`. Category defaults to Transfer
+    unless specified. Returns {ok, txn_id, from_account, to_account} for transfers
+    or {ok, txn_id} for other flows."""
     body = {
         "account_id": account_id,
         "category": category,
@@ -164,6 +170,8 @@ def log_transaction(
         "flow": flow,
         "note": note,
     }
+    if to_account_id:
+        body["to_account_id"] = to_account_id
     if currency:
         body["currency"] = currency
     return _request("POST", "/api/txn", json=body)

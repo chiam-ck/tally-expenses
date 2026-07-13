@@ -681,12 +681,15 @@ async def api_txn(request: Request):
     body = await request.json()
     account_id = body.get("account_id")
     category = body.get("category")
+    to_account_id = body.get("to_account_id")
 
     valid_accounts = queries.account_map()
     if account_id not in valid_accounts:
         raise HTTPException(status_code=400, detail=f"unknown account_id: {account_id!r}")
     if category not in queries.category_names():
         raise HTTPException(status_code=400, detail=f"unknown category: {category!r}")
+    if to_account_id and to_account_id not in valid_accounts:
+        raise HTTPException(status_code=400, detail=f"unknown to_account_id: {to_account_id!r}")
 
     amount = _to_decimal(body.get("amount"))
     currency = (body.get("currency") or valid_accounts[account_id]["currency"]).upper()
@@ -697,6 +700,36 @@ async def api_txn(request: Request):
 
     now = datetime.now(SGT)
     txn_id = "T" + now.strftime("%Y%m%d%H%M%S")
+
+    if flow == "transfer" and to_account_id:
+        # Double-entry: debit source, credit destination
+        txns = [
+            {"account_id": account_id,    "flow": "expense"},
+            {"account_id": to_account_id, "flow": "income"},
+        ]
+        result_ids = []
+        for i, t in enumerate(txns):
+            tid = f"{txn_id}_{'A' if i == 0 else 'B'}"
+            queries.insert_transaction(
+                txn_id=tid,
+                txn_date=now.date(),
+                account_id=t["account_id"],
+                flow=t["flow"],
+                category=category,
+                amount=amount,
+                currency=currency,
+                source="manual",
+                note=note,
+            )
+            result_ids.append(tid)
+        return {
+            "ok": True,
+            "txn_id": txn_id,
+            "txn_ids": result_ids,
+            "from_account": account_id,
+            "to_account": to_account_id,
+        }
+
     queries.insert_transaction(
         txn_id=txn_id,
         txn_date=now.date(),
