@@ -242,6 +242,8 @@ def page_history(
     request: Request,
     page: int = 1,
     per_page: int = 25,
+    bal_page: int = 1,
+    bal_per_page: int = 15,
     account: str = "",
     category: str = "",
     flow: str = "",
@@ -284,12 +286,26 @@ def page_history(
     history = _liquid_cash_series(fx)
     history.reverse()  # newest first for the table
 
+    # balance history pagination
+    bal_total = len(history)
+    bal_pages = max(1, math.ceil(bal_total / bal_per_page))
+    bal_page = min(max(bal_page, 1), bal_pages)
+    bal_offset = (bal_page - 1) * bal_per_page
+    history_page = history[bal_offset:bal_offset + bal_per_page]
+
+    bal_qs_parts = {k: v for k, v in {
+        "account": account, "category": category, "flow": flow,
+        "date_from": date_from, "date_to": date_to, "q": q,
+        "bal_per_page": bal_per_page,
+    }.items() if v not in ("", None)}
+    bal_base_qs = urlencode(bal_qs_parts)
+
     return templates.TemplateResponse(
         "history.html",
         base_ctx(
             request,
             txns=txns,
-            balance_history=history,
+            balance_history=history_page,
             fx_rate=fx,
             # filter form state
             f_account=account, f_category=category, f_flow=flow,
@@ -301,6 +317,9 @@ def page_history(
             shown_from=(offset + 1 if total else 0),
             shown_to=min(offset + per_page, total),
             base_qs=base_qs,
+            # balance pagination
+            bal_page=bal_page, bal_pages=bal_pages, bal_total=bal_total,
+            bal_per_page=bal_per_page, bal_base_qs=bal_base_qs,
         ),
     )
 

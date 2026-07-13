@@ -125,5 +125,21 @@
     </tbody>
   </table>
 </div>
+{% if bal_pages > 1 %}
+<div class="pager">
+  <div class="pager-info">
+    Showing <b>{{ ((bal_page - 1) * bal_per_page + 1) if bal_page else 1 }}–{{ [bal_page * bal_per_page, bal_total] | min }}</b> of <b>{{ bal_total }}</b> snapshots
+  </div>
+  <div class="pager-nav">
+    {% if bal_page > 1 %}
+      <a class="pg" href="/history?bal_page={{ bal_page - 1 }}{% if bal_base_qs %}&{{ bal_base_qs }}{% endif %}">‹ Prev</a>
+    {% else %}<span class="pg disabled">‹ Prev</span>{% endif %}
+    <span class="pg-cur">Page {{ bal_page }} / {{ bal_pages }}</span>
+    {% if bal_page < bal_pages %}
+      <a class="pg" href="/history?bal_page={{ bal_page + 1 }}{% if bal_base_qs %}&{{ bal_base_qs }}{% endif %}">Next ›</a>
+    {% else %}<span class="pg disabled">Next ›</span>{% endif %}
+  </div>
+</div>
+{% endif %}
 <p class="note">Liquid cash carries each account's latest balance forward to each date (FX {{ fx_rate }}).</p>
 {% endblock %}
