@@ -760,7 +760,9 @@ async def api_parse(request: Request):
     body = await request.json()
     text = body.get("text", "")
     # llm.parse never raises -> never 5xx.
-    return llm.parse(text)
+    result = llm.parse(text)
+    result["_v"] = "2.1"
+    return result
 
 
 # ── manual job triggers (handy for ops / smoke tests; tailnet-only) ──────────

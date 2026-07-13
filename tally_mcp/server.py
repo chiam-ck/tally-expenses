@@ -196,6 +196,7 @@ def log_from_text(text: str, confirm: bool = True) -> dict:
         currency=parsed.get("currency"),
         flow=parsed.get("flow", "expense"),
         note=parsed.get("note", ""),
+        to_account_id=parsed.get("to_account"),
     )
     return {"parsed": parsed, "result": result, "logged": "txn_id" in result}
 

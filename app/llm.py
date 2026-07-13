@@ -43,6 +43,7 @@ SYSTEM_PROMPT = (
     f"{fx.CODES}, \"category\": one of "
     f"{CATEGORIES}, \"account\": one of {ACCOUNTS}, "
     "\"flow\": one of [\"expense\", \"income\", \"transfer\"], "
+    "\"to_account\": one of {ACCOUNTS} or null, "
     "\"note\": short string}}. "
     "Rule: Grab/Gojek/Tada/taxi/MRT/bus/ezlink/fuel/parking => Transport, UNLESS the "
     "text clearly means food (e.g. GrabFood). "
@@ -55,7 +56,12 @@ SYSTEM_PROMPT = (
     "refunds, cashback, dividends, interest earned, gifts received, or any money "
     "coming in. Use \"transfer\" ONLY for moving money between your own accounts "
     "(credit card payments, bank transfers to another of your accounts, moving "
-    "money between SGD/MYR). Reply with JSON only, no prose."
+    "money between SGD/MYR). "
+    "category: when flow=transfer, ALWAYS use \"Transfer\". "
+    "to_account: REQUIRED when flow=transfer — the DESTINATION account the money "
+    "moves TO (e.g. \"DBS to cash\" → to_account=CASH_SGD, "
+    "\"withdrew from DBS to cash\" → to_account=CASH_SGD). "
+    "Set to_account=null for expense/income. Reply with JSON only, no prose."
 )
 
 # ── regex fallback ──────────────────────────────────────────────────────────
@@ -91,7 +97,7 @@ _SHOPPING_KW = re.compile(
 )
 _TRANSFER_KW = re.compile(
     r"\b(transfer|pay\s*(credit\s*card|cc)|cc\s*payment|credit\s*card\s*payment|"
-    r"move\s*(to|from|money)|send\s*(to|money)|top\s*up|balik)",
+    r"move\s*(to|from|money)|send\s*(to|money)|top\s*up|balik|withdr[ae]w|withr[ae]w)\b",
     re.I,
 )
 
@@ -107,6 +113,7 @@ _ACCOUNT_KW = [
     (re.compile(r"\btngo\b", re.I), "TNGO"),
     (re.compile(r"\btunai\b", re.I), "TUNAI"),
     (re.compile(r"\b(maybank|myr)\b", re.I), "MBB_MYR"),
+    (re.compile(r"\bcash\b", re.I), "CASH_SGD"),
 ]
 
 
@@ -144,8 +151,21 @@ def regex_parse(text: str) -> dict:
         flow = "income"
     elif _TRANSFER_KW.search(text):
         flow = "transfer"
+        category = "Transfer"
     else:
         flow = "expense"
+
+    # Detect destination account for transfers ("to cash", "as cash", etc.)
+    to_account = None
+    if flow == "transfer":
+        # First: explicit "to X" or "as X" pattern
+        for pat, acc in _ACCOUNT_KW:
+            if re.search(r"\b(?:to|as)\s+" + pat.pattern, text, re.I):
+                to_account = acc
+                break
+        # Second: if the source is a bank and no destination found, default to CASH_SGD
+        if to_account is None and account != "CASH_SGD":
+            to_account = "CASH_SGD"
 
     return {
         "amount": amount,
@@ -154,6 +174,7 @@ def regex_parse(text: str) -> dict:
         "note": text.strip(),
         "currency": currency,
         "flow": flow,
+        "to_account": to_account,
     }
 
 
@@ -200,6 +221,12 @@ def _coerce(obj: dict, text: str) -> dict:
     flow = obj.get("flow")
     if flow not in ("expense", "income", "transfer"):
         flow = fallback["flow"]
+    # Hard override: transfers ALWAYS get category "Transfer"
+    if flow == "transfer":
+        category = "Transfer"
+    to_account = obj.get("to_account")
+    if to_account not in ACCOUNTS:
+        to_account = fallback.get("to_account")
 
     return {
         "amount": amount,
@@ -208,6 +235,7 @@ def _coerce(obj: dict, text: str) -> dict:
         "note": str(note)[:200],
         "currency": currency,
         "flow": flow,
+        "to_account": to_account if to_account in ACCOUNTS else None,
     }
 
 
