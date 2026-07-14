@@ -3,9 +3,11 @@ from __future__ import annotations
 
 import os
 import re
+import time
 from contextlib import contextmanager
 from zoneinfo import ZoneInfo
 
+from psycopg import OperationalError
 from psycopg.rows import dict_row
 from psycopg_pool import ConnectionPool
 
@@ -28,6 +30,12 @@ DATABASE_URL = normalize_dsn(os.environ["DATABASE_URL"])
 pool: ConnectionPool | None = None
 
 
+def _pool_check(conn) -> None:
+    """Validate a connection before checkout — catches dead connections early."""
+    with conn.cursor() as cur:
+        cur.execute("SELECT 1")
+
+
 def open_pool() -> ConnectionPool:
     global pool
     if pool is None:
@@ -35,8 +43,13 @@ def open_pool() -> ConnectionPool:
             conninfo=DATABASE_URL,
             min_size=1,
             max_size=10,
-            kwargs={"row_factory": dict_row},
+            kwargs={"row_factory": dict_row,
+                     "keepalives": 1,
+                     "keepalives_idle": 30,
+                     "keepalives_interval": 10,
+                     "keepalives_count": 5},
             open=True,
+            check=_pool_check,
         )
     return pool
 
@@ -51,8 +64,16 @@ def close_pool() -> None:
 @contextmanager
 def get_conn():
     assert pool is not None, "connection pool not opened"
-    with pool.connection() as conn:
-        yield conn
+    last_exc = None
+    for attempt in range(3):
+        try:
+            with pool.connection() as conn:
+                yield conn
+            return
+        except OperationalError:
+            last_exc = None  # let the loop retry
+            time.sleep(0.1 * (attempt + 1))
+    raise last_exc if last_exc else RuntimeError("get_conn failed after 3 attempts")
 
 
 def query(sql: str, params: tuple | dict | None = None) -> list[dict]:
