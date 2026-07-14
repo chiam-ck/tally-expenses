@@ -492,6 +492,10 @@ def dashboard(today: date) -> dict:
         if amt:
             c["native"].append({"currency": r["currency"], "amount": amt})
     cats = list(by_cat.values())
+    # Exclude non-spend categories from the dashboard (transfers, CC payments — they
+    # move money between accounts rather than consuming it).
+    _non_spend_categories = {"Transfer", "Credit Card Payment"}
+    cats = [c for c in cats if c["category"] not in _non_spend_categories]
     for c in cats:
         c["sgd_eq"] = c["sgd_eq"].quantize(TWO)
         c["multi_currency"] = any(n["currency"] != "SGD" for n in c["native"])
