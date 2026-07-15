@@ -111,11 +111,38 @@ def recurring_poster() -> dict:
         )
         if rows:
             posted += 1
+            _notify_recurring(r)
         else:
             skipped += 1
 
     log.info("recurring_poster %s: posted=%d skipped=%d", today, posted, skipped)
     return {"date": today.isoformat(), "posted": posted, "skipped": skipped}
+
+
+def _notify_recurring(r: dict) -> None:
+    """Send a Discord webhook notification for a posted recurring expense.
+
+    Reads ``DISCORD_RECURRING_WEBHOOK`` from the environment.  Silent no-op
+    when unset — the poster works the same with or without notifications.
+    Failures are logged but never propagate (posting already succeeded).
+    """
+    webhook_url = os.environ.get("DISCORD_RECURRING_WEBHOOK")
+    if not webhook_url:
+        return
+    try:
+        resp = httpx.post(
+            webhook_url,
+            json={
+                "content": (
+                    f"📅 Recurring: ${r['amount']:,.2f} {r['name']}"
+                    f" → {r['category']} ({r['account_id']})"
+                ),
+            },
+            timeout=10.0,
+        )
+        resp.raise_for_status()
+    except Exception as exc:  # noqa: BLE001 — webhook is best-effort
+        log.warning("recurring notify failed for %s: %s", r["recur_id"], exc)
 
 
 # ── monthly rollover (1st 00:05) ────────────────────────────────────────────
