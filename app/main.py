@@ -18,6 +18,8 @@ import os
 import re
 from urllib.parse import quote, urlencode
 
+from starlette.middleware.gzip import GZipMiddleware
+
 from . import auth, charts, db, fx, jobs, llm, queries
 from .db import SGT
 
@@ -71,6 +73,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Expenses Tracker", lifespan=lifespan)
+app.add_middleware(GZipMiddleware, minimum_size=500)
 app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
 
 # Paths reachable without a session (login flow + static assets/CSS for it).
