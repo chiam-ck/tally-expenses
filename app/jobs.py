@@ -249,7 +249,7 @@ def register_jobs(scheduler) -> None:
 
     tz = SGT
     scheduler.add_job(
-        recurring_poster, CronTrigger(hour=0, minute=10, timezone=tz),
+        recurring_poster, CronTrigger(hour=5, minute=0, timezone=tz),
         id="recurring_poster", replace_existing=True,
     )
     scheduler.add_job(
