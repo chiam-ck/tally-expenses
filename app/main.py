@@ -247,6 +247,7 @@ def page_history(
     per_page: int = 25,
     bal_page: int = 1,
     bal_per_page: int = 15,
+    tab: str = "txns",
     account: str = "",
     category: str = "",
     flow: str = "",
@@ -254,6 +255,7 @@ def page_history(
     date_to: str = "",
     q: str = "",
 ):
+    tab = tab if tab in ("txns", "balances") else "txns"
     filters = {
         "account": account.strip() or None,
         "category": category.strip() or None,
@@ -282,6 +284,7 @@ def page_history(
     keep = {k: v for k, v in {
         "account": account, "category": category, "flow": flow,
         "date_from": date_from, "date_to": date_to, "q": q, "per_page": per_page,
+        "tab": tab,
     }.items() if v not in ("", None)}
     base_qs = urlencode(keep)
 
@@ -300,6 +303,7 @@ def page_history(
         "account": account, "category": category, "flow": flow,
         "date_from": date_from, "date_to": date_to, "q": q,
         "bal_per_page": bal_per_page,
+        "tab": tab,
     }.items() if v not in ("", None)}
     bal_base_qs = urlencode(bal_qs_parts)
 
@@ -320,6 +324,7 @@ def page_history(
             shown_from=(offset + 1 if total else 0),
             shown_to=min(offset + per_page, total),
             base_qs=base_qs,
+            tab=tab,
             # balance pagination
             bal_page=bal_page, bal_pages=bal_pages, bal_total=bal_total,
             bal_per_page=bal_per_page, bal_base_qs=bal_base_qs,

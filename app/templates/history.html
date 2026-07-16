@@ -4,15 +4,28 @@
 {% block content %}
 <div class="dash-head">
   <h1>History</h1>
-  <span class="pill">{{ total }} transactions</span>
+  <span class="pill">{{ total if tab == 'txns' else bal_total }} {{ 'transactions' if tab == 'txns' else 'snapshots' }}</span>
 </div>
 
+<!-- Tab navigation -->
+<div class="tab-nav" role="tablist">
+  <a href="?tab=txns{% if base_qs %}&{{ base_qs }}{% endif %}" role="tab"
+     class="tab-btn{% if tab == 'txns' %} active{% endif %}"
+     aria-selected="{{ 'true' if tab == 'txns' else 'false' }}">Transactions</a>
+  <a href="?tab=balances" role="tab"
+     class="tab-btn{% if tab == 'balances' %} active{% endif %}"
+     aria-selected="{{ 'true' if tab == 'balances' else 'false' }}">Balances</a>
+</div>
+
+{% if tab == 'txns' %}
+<!-- ── Transactions tab ── -->
 <details class="filters-wrap card"{% if has_filters %} open{% endif %}>
   <summary>
     <span>Filters{% if has_filters %} <span class="pill">on</span>{% endif %}</span>
     {% if has_filters %}<a class="btn-link" href="/history">Clear</a>{% endif %}
   </summary>
 <form class="filters" method="get" action="/history">
+  <input type="hidden" name="tab" value="txns">
   <div class="filter-grid">
     <div class="field">
       <label for="f-q">Search note / id</label>
@@ -61,7 +74,7 @@
 </form>
 </details>
 
-{% set back_url = "/history?page=" ~ page ~ ("&" ~ base_qs if base_qs else "") %}
+{% set back_url = "/history?tab=txns&page=" ~ page ~ ("&" ~ base_qs if base_qs else "") %}
 <div class="card">
   <ul class="txn-list">
     {% for t in txns %}
@@ -105,16 +118,17 @@
   </div>
   <div class="pager-nav">
     {% if page > 1 %}
-      <a class="pg" href="/history?page={{ page - 1 }}{% if base_qs %}&{{ base_qs }}{% endif %}">‹ Prev</a>
+      <a class="pg" href="/history?tab=txns&page={{ page - 1 }}{% if base_qs %}&{{ base_qs }}{% endif %}">‹ Prev</a>
     {% else %}<span class="pg disabled">‹ Prev</span>{% endif %}
     <span class="pg-cur">Page {{ page }} / {{ pages }}</span>
     {% if page < pages %}
-      <a class="pg" href="/history?page={{ page + 1 }}{% if base_qs %}&{{ base_qs }}{% endif %}">Next ›</a>
+      <a class="pg" href="/history?tab=txns&page={{ page + 1 }}{% if base_qs %}&{{ base_qs }}{% endif %}">Next ›</a>
     {% else %}<span class="pg disabled">Next ›</span>{% endif %}
   </div>
 </div>
 
-<h2>Balance history <span class="muted" style="font-size:.72rem; text-transform:none; letter-spacing:0">liquid cash by snapshot date</span></h2>
+{% else %}
+<!-- ── Balances tab ── -->
 <div class="card">
   <table>
     <thead>
@@ -141,16 +155,17 @@
   </div>
   <div class="pager-nav">
     {% if bal_page > 1 %}
-      <a class="pg" href="/history?bal_page={{ bal_page - 1 }}{% if bal_base_qs %}&{{ bal_base_qs }}{% endif %}">‹ Prev</a>
+      <a class="pg" href="/history?tab=balances&bal_page={{ bal_page - 1 }}{% if bal_base_qs %}&{{ bal_base_qs }}{% endif %}">‹ Prev</a>
     {% else %}<span class="pg disabled">‹ Prev</span>{% endif %}
     <span class="pg-cur">Page {{ bal_page }} / {{ bal_pages }}</span>
     {% if bal_page < bal_pages %}
-      <a class="pg" href="/history?bal_page={{ bal_page + 1 }}{% if bal_base_qs %}&{{ bal_base_qs }}{% endif %}">Next ›</a>
+      <a class="pg" href="/history?tab=balances&bal_page={{ bal_page + 1 }}{% if bal_base_qs %}&{{ bal_base_qs }}{% endif %}">Next ›</a>
     {% else %}<span class="pg disabled">Next ›</span>{% endif %}
   </div>
 </div>
 {% endif %}
 <p class="note">Liquid cash carries each account's latest balance forward to each date (FX {{ fx_rate }}).</p>
+{% endif %}
 {% endblock %}
 
 {% block scripts %}
