@@ -244,9 +244,9 @@ def page_dashboard(request: Request):
 def page_history(
     request: Request,
     page: int = 1,
-    per_page: int = 25,
+    per_page: int = 30,
     bal_page: int = 1,
-    bal_per_page: int = 15,
+    bal_per_page: int = 30,
     tab: str = "txns",
     account: str = "",
     category: str = "",
