@@ -9,7 +9,7 @@
 
 <!-- Tab navigation -->
 <div class="tab-nav" role="tablist">
-  <a href="?tab=txns{% if base_qs %}&{{ base_qs }}{% endif %}" role="tab"
+  <a href="?tab=txns" role="tab"
      class="tab-btn{% if tab == 'txns' %} active{% endif %}"
      aria-selected="{{ 'true' if tab == 'txns' else 'false' }}">Transactions</a>
   <a href="?tab=balances" role="tab"
