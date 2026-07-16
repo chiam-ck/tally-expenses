@@ -279,7 +279,7 @@ button:disabled { opacity: .55; cursor: default; }
   transition: color .15s, border-color .15s;
   margin-bottom: -2px;
   letter-spacing: .02em;
-  border-right: 1px solid var(--border);
+  border-right: 1px solid rgba(255,255,255,0.12);
 }
 .tab-btn:last-child { border-right: none; }
 .tab-btn:hover { color: #c0c8d8; }
@@ -288,8 +288,8 @@ button:disabled { opacity: .55; cursor: default; }
   background: transparent;
 }
 
-/* ── prevent FAB overlap on mobile ── */
-@media (max-width: 600px) { body { padding-bottom: 80px; } }
+/* ── prevent FAB overlap ── */
+body { padding-bottom: 80px; }
 .card-title {
   margin: 0 0 12px; font-size: .8rem; color: var(--muted);
   text-transform: uppercase; letter-spacing: .05em; font-weight: 600;
