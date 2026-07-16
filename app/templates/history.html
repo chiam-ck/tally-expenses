@@ -68,14 +68,23 @@
     <li class="txn">
       <div class="txn-info">
         <div class="txn-top">
-          <span class="txn-cat">{{ t.category }}{% if t.source != 'manual' %}<span class="tag">{{ t.source }}</span>{% endif %}</span>
+          <span class="txn-cat" data-editable="category" data-txn-id="{{ t.txn_id }}">
+            <span class="txn-cat-val">{{ t.category }}</span>
+            <select class="ed-inline ed-select" style="display:none">
+              {% for c in categories %}<option value="{{ c.name }}" {% if c.name == t.category %}selected{% endif %}>{{ c.name }}</option>{% endfor %}
+            </select>
+            {% if t.source != 'manual' %}<span class="tag">{{ t.source }}</span>{% endif %}
+          </span>
           <span class="txn-amt {{ t.flow }}">
             <span class="txn-native">{% if t.flow == 'income' %}+{% endif %}{{ t.amount | money }} <small class="muted">{{ t.currency }}</small></span>
             {% if t.currency != 'SGD' and t.amount_sgd is not none %}<small class="txn-sgd muted" title="Estimate at today's FX, not the rate when spent">≈ {{ t.amount_sgd | money }} SGD</small>{% endif %}
           </span>
         </div>
         <div class="txn-meta muted">{{ t.txn_date }} · {{ t.account_name }} <small>({{ t.account_id }})</small>{% if t.flow != 'transfer' %} · <span class="flow-badge {{ t.flow }}">{{ t.flow }}</span>{% endif %}</div>
-        {% if t.note %}<div class="txn-note">{{ t.note }}</div>{% endif %}
+        {% if t.note %}<div class="txn-note" data-editable="note" data-txn-id="{{ t.txn_id }}">
+          <span class="txn-note-val">{{ t.note }}</span>
+          <input class="ed-inline ed-input" type="text" value="{{ t.note }}" style="display:none">
+        </div>{% endif %}
       </div>
       <form method="post" action="/history/txn/{{ t.txn_id }}/delete" class="inline-del"
             onsubmit="return confirm('Delete this transaction?\n\n{{ t.txn_date }} · {{ t.account_id }} · {{ t.category }} · {{ t.amount | money }} {{ t.currency }}');">
@@ -142,4 +151,53 @@
 </div>
 {% endif %}
 <p class="note">Liquid cash carries each account's latest balance forward to each date (FX {{ fx_rate }}).</p>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Inline editing for category and note on the History page
+document.querySelectorAll('[data-editable]').forEach(function(el) {
+  const type = el.dataset.editable;
+  const txnId = el.dataset.txnId;
+  const input = el.querySelector(type === 'category' ? '.ed-select' : '.ed-input');
+  const display = el.querySelector(type === 'category' ? '.txn-cat-val' : '.txn-note-val');
+  if (!input || !display) return;
+
+  function startEdit() {
+    display.style.display = 'none';
+    input.style.display = '';
+    input.focus();
+    if (input.tagName === 'INPUT') input.select();
+  }
+
+  function cancelEdit() {
+    input.style.display = 'none';
+    display.style.display = '';
+  }
+
+  async function saveEdit() {
+    const val = input.value.trim();
+    if (!val || val === display.textContent) { cancelEdit(); return; }
+    const body = new FormData();
+    body.append(type, val);
+    try {
+      const resp = await fetch('/history/txn/' + txnId + '/update', {method:'POST', body});
+      if (resp.ok) {
+        display.textContent = val;
+      }
+    } catch(e) {}
+    cancelEdit();
+  }
+
+  input.addEventListener('blur', saveEdit);
+  input.addEventListener('keydown', function(e) {
+    if (e.key === 'Enter') { e.preventDefault(); saveEdit(); }
+    if (e.key === 'Escape') cancelEdit();
+  });
+
+  display.addEventListener('click', startEdit);
+  display.style.cursor = 'pointer';
+  display.title = 'Click to edit';
+});
+</script>
 {% endblock %}

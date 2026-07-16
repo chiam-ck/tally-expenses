@@ -339,6 +339,20 @@ async def history_txn_delete(request: Request, txn_id: str):
     return RedirectResponse(url=back, status_code=303)
 
 
+@app.post("/history/txn/{txn_id}/update")
+async def history_txn_update(request: Request, txn_id: str):
+    """Update category and/or note of a transaction inline from the History page.
+    Returns a short JSON response for the JS to update the DOM."""
+    form = await request.form()
+    category = form.get("category", "").strip() or None
+    note = form.get("note")
+    if note is not None:
+        note = note.strip()
+    if category or note is not None:
+        queries.update_transaction(txn_id, category=category, note=note)
+    return JSONResponse({"ok": True, "txn_id": txn_id, "category": category, "note": note})
+
+
 # ── settings: shared ────────────────────────────────────────────────────────
 
 @app.get("/settings")

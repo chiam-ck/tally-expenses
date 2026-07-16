@@ -818,3 +818,23 @@ def rollover_balance(snap_date: date, account_id: str, balance, currency: str) -
             "currency": currency,
         },
     )
+
+
+def update_transaction(txn_id: str, *, category: str | None = None, note: str | None = None) -> int:
+    """Update category and/or note of a transaction by txn_id.
+    Returns rowcount (should be 1 on success, 0 if not found).
+    """
+    sets = []
+    params = {"txn_id": txn_id}
+    if category is not None:
+        sets.append("category = %(category)s")
+        params["category"] = category
+    if note is not None:
+        sets.append("note = %(note)s")
+        params["note"] = note
+    if not sets:
+        return 0
+    return db.execute(
+        f"UPDATE transactions SET {', '.join(sets)} WHERE txn_id = %(txn_id)s",
+        params,
+    )
