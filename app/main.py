@@ -22,6 +22,7 @@ from starlette.middleware.gzip import GZipMiddleware
 
 from . import auth, charts, db, fx, jobs, llm, queries
 from .db import SGT
+from .transaction_ids import make_txn_id
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
 log = logging.getLogger("expenses")
@@ -803,7 +804,7 @@ async def api_txn(request: Request):
     note = (body.get("note") or "")[:200]
 
     now = datetime.now(SGT)
-    txn_id = "T" + now.strftime("%Y%m%d%H%M%S")
+    txn_id = make_txn_id(now)
 
     if flow == "transfer" and to_account_id:
         # Double-entry: debit source, credit destination
