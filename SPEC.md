@@ -128,9 +128,9 @@ tracks spending without waiting for the next manual snapshot.)
 - **Projected month** = Total expenses MTD + (avg daily burn) × (days_in_month − days elapsed).
   i.e. fixed costs already booked + discretionary run-rate over remaining days.
 
-## 6. Pages (Jinja, server-rendered, dark theme to match existing forms)
+## 6. Pages (Jinja, server-rendered, system-aware light/dark theme)
 
-Reuse the existing visual style: dark background `#0b1220`, cards `#141d2e`, borders `#28344f`,
+Reuse the existing visual style in dark mode: background `#0b1220`, cards `#141d2e`, borders `#28344f`,
 text `#eef2f8`, muted `#93a0b8`, accent `#3b82f6`. Mobile-first, `max-width:460px` for forms.
 
 ### `GET /` — Dashboard

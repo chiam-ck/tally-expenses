@@ -67,7 +67,7 @@ one reverses the adjustment. Manual balance snapshots still take precedence.
 | `fx.py` | Supported-currency list, live FX fetch via open.er-api.com, NL currency detection |
 | `llm.py` | NL → structured-expense parse via any OpenAI-compatible endpoint, with a regex fallback (never raises) |
 | `charts.py` | Dependency-free server-rendered SVG (line / donut / bar) |
-| `templates/`, `static/` | Jinja2 templates (pages + Balance/Log modals) and the dark-theme CSS |
+| `templates/`, `static/` | Jinja2 templates (pages + Balance/Log modals) and the system-aware theme CSS |
 
 The MCP sidecar lives in [`tally_mcp/`](tally_mcp/) (`server.py` = tools + transport;
 its own `requirements.txt`; built by `Dockerfile.mcp`). It shares no code with `app/`.
