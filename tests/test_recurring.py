@@ -62,6 +62,47 @@ def test_external_pipeline_rows_stay_in_projection():
     assert projected == Decimal("27.98")
 
 
+def test_display_next_due_starts_after_today():
+    monthly = {
+        "frequency": "monthly",
+        "day_of_month": 20,
+        "month_of_year": None,
+        "start_date": date(2026, 1, 1),
+        "end_date": None,
+    }
+    every30 = {
+        "frequency": "every30",
+        "day_of_month": 1,
+        "month_of_year": None,
+        "start_date": date(2026, 8, 21),
+        "end_date": None,
+    }
+
+    assert jobs.next_due(monthly, date(2026, 9, 20)) == date(2026, 9, 20)
+    assert jobs.next_due(every30, date(2026, 9, 20)) == date(2026, 9, 20)
+    assert jobs.next_due(
+        monthly, date(2026, 9, 20), strictly_after=True
+    ) == date(2026, 10, 20)
+    assert jobs.next_due(
+        every30, date(2026, 9, 20), strictly_after=True
+    ) == date(2026, 10, 20)
+
+
+def test_recurring_display_sort_prioritizes_next_due_date():
+    items = [
+        {"name": "Later", "active": True, "next_due": date(2026, 10, 16)},
+        {"name": "Paused soon", "active": False, "next_due": date(2026, 9, 19)},
+        {"name": "Soon", "active": True, "next_due": date(2026, 9, 20)},
+        {"name": "No next date", "active": True, "next_due": None},
+    ]
+
+    ordered = jobs.sort_recurring_for_display(items)
+
+    assert [item["name"] for item in ordered] == [
+        "Soon", "Later", "No next date", "Paused soon"
+    ]
+
+
 if __name__ == "__main__":
     test_recurring_poster_skips_external_pipeline_rows()
     test_external_pipeline_rows_stay_in_projection()

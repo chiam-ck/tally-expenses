@@ -604,7 +604,8 @@ def page_recurring(request: Request, edit: str = ""):
     today = datetime.now(SGT).date()
     items = queries.list_recurring()
     for r in items:
-        r["next_due"] = jobs.next_due(r, today)
+        r["next_due"] = jobs.next_due(r, today, strictly_after=True)
+    items = jobs.sort_recurring_for_display(items)
     return templates.TemplateResponse(
         "recurring.html",
         base_ctx(request, active_tab="recurring", items=items,

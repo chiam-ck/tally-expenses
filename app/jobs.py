@@ -48,8 +48,15 @@ def is_due(r: dict, today: date) -> bool:
     return today.day == _month_end_day(r["day_of_month"], today.year, today.month)
 
 
-def next_due(r: dict, today: date) -> date | None:
-    """Estimated next renewal/post date on or after ``today`` (None if past end_date)."""
+def next_due(
+    r: dict, today: date, *, strictly_after: bool = False
+) -> date | None:
+    """Estimated next renewal/post date from ``today``.
+
+    By default, a renewal due today is returned. The recurring settings screen
+    passes ``strictly_after=True`` so its list starts with the next upcoming
+    event rather than one that is already due.
+    """
     freq = r.get("frequency") or "monthly"
     end = r.get("end_date")
     cand: date | None = None
@@ -62,7 +69,11 @@ def next_due(r: dict, today: date) -> date | None:
             cand = anchor + timedelta(days=EVERY_N_DAYS)
         else:
             rem = (today - anchor).days % EVERY_N_DAYS
-            cand = today if rem == 0 else today + timedelta(days=EVERY_N_DAYS - rem)
+            if rem == 0 and not strictly_after:
+                cand = today
+            else:
+                days_until = EVERY_N_DAYS - rem if rem else EVERY_N_DAYS
+                cand = today + timedelta(days=days_until)
     else:
         # Walk forward month by month (≤12 steps) until the day matches.
         y, m = today.year, today.month
@@ -70,7 +81,7 @@ def next_due(r: dict, today: date) -> date | None:
             if freq != "yearly" or m == r.get("month_of_year"):
                 d = _month_end_day(r["day_of_month"], y, m)
                 c = date(y, m, d)
-                if c >= today:
+                if c > today or (c == today and not strictly_after):
                     cand = c
                     break
             m += 1
@@ -83,6 +94,24 @@ def next_due(r: dict, today: date) -> date | None:
     if cand and end and cand > end:
         return None
     return cand
+
+
+def sort_recurring_for_display(items: list[dict]) -> list[dict]:
+    """Order recurring templates by the next event shown to the user.
+
+    Active templates that happen sooner come first. Paused templates are kept
+    after active ones because they will not actually fire; undated items stay
+    at the end of their active/paused group.
+    """
+    return sorted(
+        items,
+        key=lambda r: (
+            not r.get("active", True),
+            r.get("next_due") is None,
+            r.get("next_due") or date.max,
+            str(r.get("name", "")).casefold(),
+        ),
+    )
 
 
 # ── recurring poster (daily 05:00) ──────────────────────────────────────────
