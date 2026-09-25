@@ -50,6 +50,9 @@ SYSTEM_PROMPT = (
     "Rule: shopee/lazada/amazon/buy/bought/ntuc/fairprice/groceries/"
     "daiso/muji/ikea/dept store/mall => Shopping (discretionary). "
     "Default account is CASH_SGD. "
+    "Rule: a generic current mention of \"credit card\" or \"CC\" means DBS_CC, "
+    "the only active card. Use MBB_CC only when the text explicitly refers to "
+    "historical activity. "
     "Rule: PayLah, paylah, or any PayLah mention => DBS account (DBS Bank / Paylah). "
     "Rule: Wise => WISE card. " 
     "Currency: use the one named in the text (e.g. usd, rm/ringgit, yen, baht, "
@@ -102,11 +105,18 @@ _TRANSFER_KW = re.compile(
     r"move\s*(to|from|money)|send\s*(to|money)|top\s*up|balik|withdr[ae]w|withr[ae]w)\b",
     re.I,
 )
+_GENERIC_CC_KW = re.compile(r"\b(?:credit[\s-]*card|cc)\b", re.I)
+_LEGACY_MBB_CC_KW = re.compile(r"\bmbb\s*cc\b", re.I)
+
+
+def _is_generic_current_cc(text: str) -> bool:
+    return bool(_GENERIC_CC_KW.search(text)) and not bool(_LEGACY_MBB_CC_KW.search(text))
 
 # Order matters: most specific account aliases first.
 _ACCOUNT_KW = [
     (re.compile(r"\bdbs\s*cc\b", re.I), "DBS_CC"),
     (re.compile(r"\bmbb\s*cc\b", re.I), "MBB_CC"),
+    (_GENERIC_CC_KW, "DBS_CC"),
     (re.compile(r"\bisaavy\b", re.I), "MBB_ISAAVY"),
     (re.compile(r"\bdbs\b", re.I), "DBS"),
     (re.compile(r"\bocbc\b", re.I), "OCBC"),
@@ -145,6 +155,9 @@ def regex_parse(text: str) -> dict:
         if pat.search(text):
             account = acc
             break
+    generic_current_cc = _is_generic_current_cc(text)
+    if generic_current_cc:
+        account = "DBS_CC"
 
     # Explicit currency in the text wins; else derive from the account.
     currency = fx.detect_currency(text) or currency_for_account(account)
@@ -160,11 +173,15 @@ def regex_parse(text: str) -> dict:
     # Detect destination account for transfers ("to cash", "as cash", etc.)
     to_account = None
     if flow == "transfer":
+        if generic_current_cc:
+            account = "DBS"
+            to_account = "DBS_CC"
         # First: explicit "to X" or "as X" pattern
-        for pat, acc in _ACCOUNT_KW:
-            if re.search(r"\b(?:to|as)\s+" + pat.pattern, text, re.I):
-                to_account = acc
-                break
+        if to_account is None:
+            for pat, acc in _ACCOUNT_KW:
+                if re.search(r"\b(?:to|as)\s+" + pat.pattern, text, re.I):
+                    to_account = acc
+                    break
         # Second: if the source is a bank and no destination found, default to CASH_SGD
         if to_account is None and account != "CASH_SGD":
             to_account = "CASH_SGD"
@@ -212,6 +229,9 @@ def _coerce(obj: dict, text: str) -> dict:
     account = obj.get("account")
     if account not in ACCOUNTS:
         account = fallback["account"]
+    generic_current_cc = _is_generic_current_cc(text)
+    if generic_current_cc:
+        account = "DBS_CC"
 
     note = obj.get("note") or fallback["note"]
 
@@ -229,6 +249,9 @@ def _coerce(obj: dict, text: str) -> dict:
     to_account = obj.get("to_account")
     if to_account not in ACCOUNTS:
         to_account = fallback.get("to_account")
+    if generic_current_cc and flow == "transfer":
+        account = "DBS"
+        to_account = "DBS_CC"
 
     return {
         "amount": amount,
