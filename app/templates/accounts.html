@@ -7,9 +7,9 @@
 
 <div class="dash-head">
   <h2 style="margin:0">Accounts</h2>
-  <span class="pill">{{ items | length }} accounts</span>
+  <span class="pill">{{ items | length }} active accounts</span>
 </div>
-<p class="note">Accounts feed the balance form, net cash, and dropdowns. Deactivating hides an account from the balance form but keeps its history. Accounts referenced by data can't be deleted — deactivate instead.</p>
+<p class="note">Accounts feed the balance form, net cash, and dropdowns. Inactive accounts are tucked away below and retain their history. Accounts referenced by data can't be deleted — deactivate instead.</p>
 
 {% if err %}<div class="flash err">{{ err }}</div>{% endif %}
 
@@ -36,6 +36,33 @@
   <p class="muted">No accounts yet.</p>
 {% endfor %}
 </div>
+
+{% if inactive_items %}
+<details id="inactive-accounts" style="margin-top:1rem">
+  <summary>Inactive accounts ({{ inactive_items | length }})</summary>
+  <div class="rec-list" style="margin-top:.75rem">
+  {% for a in inactive_items %}
+    <div class="rec-item row-off">
+      <div class="rec-top">
+        <div class="rec-name">{{ a.name }}</div>
+        <div class="rec-amount"><span class="tag {% if a.type == 'liability' %}freq-y{% else %}freq-m{% endif %}">{{ a.type }}</span></div>
+      </div>
+      <div class="rec-meta muted"><code>{{ a.account_id }}</code> · {{ a.currency }} · sort {{ a.sort_order }} · {{ a.refs }} refs</div>
+      <div class="rec-actions">
+        <form method="post" action="/settings/accounts/{{ a.account_id }}/toggle">
+          <button type="submit" class="chip-btn off">Inactive</button>
+        </form>
+        <a class="btn-link rec-edit" href="/settings/accounts?edit={{ a.account_id }}#form">Edit</a>
+        <form method="post" action="/settings/accounts/{{ a.account_id }}/delete"
+              onsubmit="return confirm('Delete account {{ a.account_id }}?')">
+          <button type="submit" class="btn-link danger" {% if a.refs %}title="Referenced by {{ a.refs }} rows — deactivate instead"{% endif %}>Delete</button>
+        </form>
+      </div>
+    </div>
+  {% endfor %}
+  </div>
+</details>
+{% endif %}
 
 <h2 id="form">{% if editing %}Edit “{{ editing.name }}” ({{ editing.account_id }}){% else %}Add an account{% endif %}</h2>
 <form class="card" method="post"

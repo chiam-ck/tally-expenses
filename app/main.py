@@ -149,9 +149,11 @@ def logout():
 def base_ctx(request: Request, **extra) -> dict:
     """Context every page needs so the Balance/Log modals (included in base.html)
     can render on any page. Cheap reference reads."""
+    account_rows = queries.accounts()
     ctx = {
         "request": request,
-        "accounts": queries.accounts(),
+        "accounts": account_rows,
+        "active_accounts": [a for a in account_rows if a["active"]],
         "categories": queries.categories(),
         "currencies": fx.CURRENCIES,
         "balance_rows": [r for r in queries.latest_balances() if r["active"]],
@@ -172,10 +174,19 @@ def _liquid_cash_series(fx) -> list:
     return out
 
 
+def _dashboard_display_metrics(metrics: dict) -> dict:
+    """Keep inactive accounts out of the dashboard's visible balance table."""
+    displayed = dict(metrics)
+    displayed["latest_balances"] = [
+        row for row in metrics["latest_balances"] if row["active"]
+    ]
+    return displayed
+
+
 @app.get("/", response_class=HTMLResponse)
 def page_dashboard(request: Request, month: str = ""):
     t = today()
-    m = queries.dashboard(t)
+    m = _dashboard_display_metrics(queries.dashboard(t))
     fx = m["fx_rate"]
 
     # Parse requested month (YYYY-MM), default to current
@@ -485,10 +496,13 @@ def page_accounts(request: Request, edit: str = "", err: str = ""):
         a = dict(a)
         a["refs"] = (refs["txns"] + refs["bals"] + refs["recs"]) if refs else 0
         items.append(a)
+    active_items = [a for a in items if a["active"]]
+    inactive_items = [a for a in items if not a["active"]]
     return templates.TemplateResponse(
         "accounts.html",
-        base_ctx(request, active_tab="accounts", items=items, editing=editing,
-                 err=err, next_sort=queries.next_account_sort()),
+        base_ctx(request, active_tab="accounts", items=active_items,
+                 inactive_items=inactive_items, editing=editing, err=err,
+                 next_sort=queries.next_account_sort()),
     )
 
 
@@ -532,11 +546,14 @@ def account_delete(account_id: str):
 
 # ── settings: recurring ─────────────────────────────────────────────────────
 
-def _parse_recurring_form(form) -> dict:
+def _parse_recurring_form(form, allow_existing_inactive: str | None = None) -> dict:
     valid_accounts = queries.account_map()
     account_id = form.get("account_id")
-    if account_id not in valid_accounts:
+    account = valid_accounts.get(account_id)
+    if account is None:
         raise HTTPException(status_code=400, detail=f"unknown account_id: {account_id!r}")
+    if not account["active"] and account_id != allow_existing_inactive:
+        raise HTTPException(status_code=400, detail=f"inactive account_id: {account_id!r}")
     category = form.get("category")
     if category not in queries.category_names():
         raise HTTPException(status_code=400, detail=f"unknown category: {category!r}")
@@ -606,10 +623,15 @@ def page_recurring(request: Request, edit: str = ""):
     for r in items:
         r["next_due"] = jobs.next_due(r, today, strictly_after=True)
     items = jobs.sort_recurring_for_display(items)
+    ctx = base_ctx(request, active_tab="recurring", items=items,
+                   editing=editing, months=MONTHS)
+    current_account_id = editing["account_id"] if editing else None
+    ctx["recurring_accounts"] = [
+        a for a in ctx["accounts"]
+        if a["active"] or a["account_id"] == current_account_id
+    ]
     return templates.TemplateResponse(
-        "recurring.html",
-        base_ctx(request, active_tab="recurring", items=items,
-                 editing=editing, months=MONTHS),
+        "recurring.html", ctx,
     )
 
 
@@ -627,10 +649,14 @@ async def recurring_create(request: Request):
 
 @app.post("/settings/recurring/{recur_id}/update")
 async def recurring_update(request: Request, recur_id: str):
-    if not queries.get_recurring(recur_id):
+    existing = queries.get_recurring(recur_id)
+    if not existing:
         raise HTTPException(status_code=404, detail="recurring not found")
     form = await request.form()
-    queries.update_recurring(recur_id, _parse_recurring_form(form))
+    queries.update_recurring(
+        recur_id,
+        _parse_recurring_form(form, allow_existing_inactive=existing["account_id"]),
+    )
     return RedirectResponse(url="/settings/recurring", status_code=303)
 
 
