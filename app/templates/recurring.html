@@ -59,7 +59,7 @@
     <div class="field">
       <label for="r-account">Account</label>
       <select id="r-account" name="account_id">
-        {% for a in accounts %}<option value="{{ a.account_id }}" {% if editing and editing.account_id == a.account_id %}selected{% endif %}>{{ a.name }} ({{ a.account_id }})</option>{% endfor %}
+        {% for a in recurring_accounts %}<option value="{{ a.account_id }}" {% if editing and editing.account_id == a.account_id %}selected{% endif %}>{{ a.name }} ({{ a.account_id }}){% if not a.active %} — inactive, already assigned{% endif %}</option>{% endfor %}
       </select>
     </div>
     <div class="field">

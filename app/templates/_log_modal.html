@@ -39,8 +39,9 @@
   </div>
   <div class="field">
     <label for="account">Account</label>
-    <select id="account">
-      {% for a in accounts %}<option value="{{ a.account_id }}" data-currency="{{ a.currency }}">{{ a.name }} ({{ a.account_id }})</option>{% endfor %}
+    <select id="account" required>
+      <option value="" disabled selected>Choose an active account</option>
+      {% for a in active_accounts %}<option value="{{ a.account_id }}" data-currency="{{ a.currency }}">{{ a.name }} ({{ a.account_id }})</option>{% endfor %}
     </select>
   </div>
   <div class="field">
@@ -56,7 +57,7 @@
   if (!root || root.dataset.wired) return;
   root.dataset.wired = '1';
 
-  const ACCOUNTS = {{ accounts | map(attribute='account_id') | list | tojson }};
+  const ACCOUNTS = {{ active_accounts | map(attribute='account_id') | list | tojson }};
   const flash = root.querySelector('#log-flash');
   const form = root.querySelector('#log-form');
   const accSel = root.querySelector('#account');
@@ -87,7 +88,14 @@
   function fillForm(p) {
     root.querySelector('#amount').value = p.amount ?? 0;
     root.querySelector('#category').value = p.category;
-    accSel.value = ACCOUNTS.includes(p.account) ? p.account : 'CASH_SGD';
+    const accountIsAvailable = ACCOUNTS.includes(p.account);
+    accSel.value = accountIsAvailable ? p.account : '';
+    if (!accountIsAvailable) {
+      flash.className = 'flash err';
+      flash.textContent = p.account
+        ? `${p.account} is inactive or unavailable. Choose an active account before logging.`
+        : 'Choose an active account before logging.';
+    }
     curInput.value = p.currency || currencyForAccount(accSel.value);
     root.querySelector('#note').value = p.note || '';
     // Flow toggle
@@ -113,7 +121,11 @@
     });
   });
 
-  accSel.addEventListener('change', () => { curInput.value = currencyForAccount(accSel.value); });
+  accSel.addEventListener('change', () => {
+    curInput.value = currencyForAccount(accSel.value);
+    flash.className = 'flash';
+    flash.textContent = '';
+  });
 
   root.querySelector('#parse-btn').addEventListener('click', async () => {
     const text = root.querySelector('#nl').value.trim();
@@ -136,6 +148,12 @@
     e.preventDefault();
     const btn = root.querySelector('#log-btn');
     btn.disabled = true;
+    if (!accSel.value) {
+      flash.className = 'flash err';
+      flash.textContent = 'Choose an active account before logging.';
+      btn.disabled = false;
+      return;
+    }
     const flowInput = root.querySelector('input[name="flow"]:checked');
     const payload = {
       account_id: accSel.value,
