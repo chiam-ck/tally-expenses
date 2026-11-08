@@ -37,7 +37,7 @@ class PostgresAtomicity(unittest.TestCase):
         body=dict(account_id='a',to_account_id='b',flow='transfer',category='Food',amount='10',currency='SGD',txn_date=self.yesterday.isoformat(),note='isolated synthetic test')
         class Request:
             async def json(self): return body
-        return asyncio.run(self.main.api_txn(Request()))
+        return asyncio.run(self.main.api_txn_dated(Request()))
     def assert_unchanged(self):
         self.assertEqual(self.db.query_one('SELECT count(*) AS n FROM transactions')['n'],0)
         rows=self.db.query('SELECT account_id,balance,snap_date FROM balances ORDER BY account_id')

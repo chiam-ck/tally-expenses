@@ -18,9 +18,17 @@ class MCPDates(unittest.TestCase):
                 self.assertIn('error',result)
                 request.assert_called_once_with('GET','/api/reference')
     def test_explicit_date_forwarded_unchanged(self):
-        cap={'capabilities':{'transaction_date':{'version':1,'atomic_transfer':True}}}
+        cap={'capabilities':{'transaction_date':{'version':1,'atomic_transfer':True,'endpoint':'/api/txn/dated'}}}
         with patch.object(server,'_request',side_effect=[cap,{'ok':True,'txn_date':'2026-11-07'}]) as request:
             result=server.log_transaction('a','Food',1,txn_date='2026-11-07')
             self.assertEqual(request.call_args.kwargs['json']['txn_date'],'2026-11-07')
             self.assertEqual(result['txn_date'],'2026-11-07')
+            self.assertEqual(request.call_args.args,('POST','/api/txn/dated'))
+    def test_rollback_between_capability_and_post_cannot_use_old_write_route(self):
+        cap={'capabilities':{'transaction_date':{'version':1,'atomic_transfer':True,'endpoint':'/api/txn/dated'}}}
+        with patch.object(server,'_request',side_effect=[cap,{'error':'HTTP 404: Not Found'}]) as request:
+            result=server.log_transaction('a','Food',1,txn_date='2026-11-07')
+            self.assertIn('404',result['error'])
+            self.assertEqual(request.call_count,2)
+            self.assertEqual(request.call_args.args,('POST','/api/txn/dated'))
 if __name__=='__main__':unittest.main()

@@ -103,6 +103,16 @@ class DateTests(unittest.TestCase):
         self.assertEqual(c['version'],1); self.assertIs(c['atomic_transfer'],True)
 
 class ReadbackTests(unittest.TestCase):
+    def test_dated_endpoint_requires_explicit_date(self):
+        with patch.object(main,'_create_transaction') as create,self.assertRaises(HTTPException):
+            asyncio.run(main.api_txn_dated(Request({})))
+        create.assert_not_called()
+    def test_dated_endpoint_uses_same_validated_writer(self):
+        body={'txn_date':'2026-11-07'}
+        with patch.object(main,'_create_transaction',return_value={'ok':True}) as create:
+            self.assertEqual(asyncio.run(main.api_txn_dated(Request(body))),{'ok':True})
+        create.assert_called_once_with(body)
+
     def test_readback_retains_requested_date(self):
         import json
         row=dict(txn_id='t', txn_date=date(2026,11,7), account_id='a', account_name='A',flow='expense', category='Food', amount=Decimal('10'),currency='SGD',source='manual',note='issuer reference')

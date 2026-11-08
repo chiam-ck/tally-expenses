@@ -730,7 +730,7 @@ def api_reference():
     rather than hard-coding ids, since accounts/categories are user-editable."""
     return JSONResponse(_jsonable({
         "accounts": queries.accounts(),
-        "capabilities": {"transaction_date": {"version": 1, "format": "YYYY-MM-DD", "timezone": "Asia/Singapore", "max": "today", "atomic_transfer": True, "balance_effect": "latest_snapshot"}},
+        "capabilities": {"transaction_date": {"version": 1, "endpoint": "/api/txn/dated", "format": "YYYY-MM-DD", "timezone": "Asia/Singapore", "max": "today", "atomic_transfer": True, "balance_effect": "latest_snapshot"}},
         "categories": queries.categories(),
         "currencies": fx.CURRENCIES,
     }))
@@ -827,7 +827,19 @@ def _transaction_date(body: dict, current: date) -> date:
 
 @app.post("/api/txn")
 async def api_txn(request: Request):
+    return _create_transaction(await request.json())
+
+
+@app.post("/api/txn/dated")
+async def api_txn_dated(request: Request):
+    """Distinct operation: old servers return 404 rather than silently misdate."""
     body = await request.json()
+    if not isinstance(body, dict) or "txn_date" not in body:
+        raise HTTPException(status_code=400, detail="txn_date is required")
+    return _create_transaction(body)
+
+
+def _create_transaction(body: dict):
     now = datetime.now(SGT)
     txn_date = _transaction_date(body, now.date())
     account_id = body.get("account_id")

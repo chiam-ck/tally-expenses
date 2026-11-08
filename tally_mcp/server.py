@@ -197,9 +197,10 @@ def log_transaction(
         capabilities = reference.get("capabilities")
         capability = capabilities.get("transaction_date") if isinstance(capabilities, dict) else None
         capability = capability if isinstance(capability, dict) else {}
-        if capability.get("version") != 1 or capability.get("atomic_transfer") is not True:
+        if capability.get("version") != 1 or capability.get("atomic_transfer") is not True or capability.get("endpoint") != "/api/txn/dated":
             return {"error": "explicit transaction dates unsupported by deployed Tally API"}
         body["txn_date"] = txn_date
+        return _request("POST", "/api/txn/dated", json=body)
     return _request("POST", "/api/txn", json=body)
 
 
