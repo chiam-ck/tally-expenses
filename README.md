@@ -113,3 +113,26 @@ internally. Two distinct secrets, no key leakage.
 ## License
 
 [MIT](LICENSE) © 2026 Ck Chiam
+
+
+### Explicit transaction dates (v1.10.0)
+
+The authenticated `POST /api/txn` and MCP `log_transaction` accept optional
+`txn_date` as a strict `YYYY-MM-DD` Singapore calendar date. Omission retains
+Singapore today. Invalid dates, timestamps and future dates are rejected before
+any write. Both transfer legs receive the same date and commit atomically with
+their balance effects; ordinary transaction inserts and balance effects are also
+atomic. The response includes the effective `txn_date`.
+
+`GET /api/reference` / MCP `list_reference` advertise
+`capabilities.transaction_date.version = 1`, `atomic_transfer = true`,
+`timezone = "Asia/Singapore"`, `max = "today"`, and
+`balance_effect = "latest_snapshot"`. Explicit-date MCP calls require this
+capability before POST, because older servers silently ignored unknown fields.
+Receipt integrations must check it before reserving a write and retain their
+source/issuer deduplication, ownership locks and uncertain-outcome reconciliation.
+
+A historical transaction affects the latest balance snapshot once; it does not
+recompute old snapshots. Read back with `GET /api/transactions` / MCP
+`list_transactions`, matching the exact transaction/source fields and date.
+This feature does not authorize replaying historical receipts automatically.

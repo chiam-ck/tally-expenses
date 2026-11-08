@@ -5,6 +5,7 @@ import os
 import re
 import time
 from contextlib import contextmanager
+from contextvars import ContextVar
 from zoneinfo import ZoneInfo
 
 from psycopg import OperationalError
@@ -61,8 +62,31 @@ def close_pool() -> None:
         pool = None
 
 
+_transaction_conn = ContextVar("tally_transaction_conn", default=None)
+
+
+@contextmanager
+def transaction():
+    """Pin all query helpers to one atomic transaction; never replay writes."""
+    if _transaction_conn.get() is not None:
+        yield
+        return
+    assert pool is not None, "connection pool not opened"
+    with pool.connection() as conn:
+        with conn.transaction():
+            token = _transaction_conn.set(conn)
+            try:
+                yield
+            finally:
+                _transaction_conn.reset(token)
+
+
 @contextmanager
 def get_conn():
+    pinned = _transaction_conn.get()
+    if pinned is not None:
+        yield pinned
+        return
     assert pool is not None, "connection pool not opened"
     last_exc = None
     for attempt in range(3):

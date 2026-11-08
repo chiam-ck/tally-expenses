@@ -730,6 +730,7 @@ def api_reference():
     rather than hard-coding ids, since accounts/categories are user-editable."""
     return JSONResponse(_jsonable({
         "accounts": queries.accounts(),
+        "capabilities": {"transaction_date": {"version": 1, "format": "YYYY-MM-DD", "timezone": "Asia/Singapore", "max": "today", "atomic_transfer": True, "balance_effect": "latest_snapshot"}},
         "categories": queries.categories(),
         "currencies": fx.CURRENCIES,
     }))
@@ -808,9 +809,27 @@ async def api_balance(request: Request):
     return {"ok": True, "rows": n}
 
 
+def _transaction_date(body: dict, current: date) -> date:
+    """Absent means SGT today; explicit values must be real ISO calendar dates."""
+    if "txn_date" not in body:
+        return current
+    value = body["txn_date"]
+    if not isinstance(value, str) or not re.fullmatch(r"[0-9]{4}-[0-9]{2}-[0-9]{2}", value):
+        raise HTTPException(status_code=400, detail="txn_date must be YYYY-MM-DD")
+    try:
+        result = date.fromisoformat(value)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="txn_date must be a valid calendar date")
+    if result > current:
+        raise HTTPException(status_code=400, detail="txn_date cannot be after today in Asia/Singapore")
+    return result
+
+
 @app.post("/api/txn")
 async def api_txn(request: Request):
     body = await request.json()
+    now = datetime.now(SGT)
+    txn_date = _transaction_date(body, now.date())
     account_id = body.get("account_id")
     category = body.get("category")
     to_account_id = body.get("to_account_id")
@@ -830,50 +849,51 @@ async def api_txn(request: Request):
     flow = body.get("flow") or "expense"
     note = (body.get("note") or "")[:200]
 
-    now = datetime.now(SGT)
     txn_id = make_txn_id(now)
 
-    if flow == "transfer" and to_account_id:
-        # Double-entry: debit source, credit destination
-        txns = [
-            {"account_id": account_id,    "flow": "expense"},
-            {"account_id": to_account_id, "flow": "income"},
-        ]
-        result_ids = []
-        for i, t in enumerate(txns):
-            tid = f"{txn_id}_{'A' if i == 0 else 'B'}"
-            queries.insert_transaction(
-                txn_id=tid,
-                txn_date=now.date(),
-                account_id=t["account_id"],
-                flow=t["flow"],
-                category=category,
-                amount=amount,
-                currency=currency,
-                source="manual",
-                note=note,
-            )
-            result_ids.append(tid)
-        return {
-            "ok": True,
-            "txn_id": txn_id,
-            "txn_ids": result_ids,
-            "from_account": account_id,
-            "to_account": to_account_id,
-        }
+    with db.transaction():
+        if flow == "transfer" and to_account_id:
+            # Double-entry: debit source, credit destination
+            txns = [
+                {"account_id": account_id,    "flow": "expense"},
+                {"account_id": to_account_id, "flow": "income"},
+            ]
+            result_ids = []
+            for i, t in enumerate(txns):
+                tid = f"{txn_id}_{'A' if i == 0 else 'B'}"
+                queries.insert_transaction(
+                    txn_id=tid,
+                    txn_date=txn_date,
+                    account_id=t["account_id"],
+                    flow=t["flow"],
+                    category=category,
+                    amount=amount,
+                    currency=currency,
+                    source="manual",
+                    note=note,
+                )
+                result_ids.append(tid)
+            return {
+                "ok": True,
+                "txn_date": txn_date.isoformat(),
+                "txn_id": txn_id,
+                "txn_ids": result_ids,
+                "from_account": account_id,
+                "to_account": to_account_id,
+            }
 
-    queries.insert_transaction(
-        txn_id=txn_id,
-        txn_date=now.date(),
-        account_id=account_id,
-        flow=flow,
-        category=category,
-        amount=amount,
-        currency=currency,
-        source="manual",
-        note=note,
-    )
-    return {"ok": True, "txn_id": txn_id}
+        queries.insert_transaction(
+            txn_id=txn_id,
+            txn_date=txn_date,
+            account_id=account_id,
+            flow=flow,
+            category=category,
+            amount=amount,
+            currency=currency,
+            source="manual",
+            note=note,
+        )
+        return {"ok": True, "txn_id": txn_id, "txn_date": txn_date.isoformat()}
 
 
 @app.delete("/api/txn/{txn_id}")

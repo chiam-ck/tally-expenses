@@ -167,15 +167,20 @@ def log_transaction(
     currency: str | None = None,
     flow: str = "expense",
     note: str = "",
+    txn_date: str | None = None,
 ) -> dict:
     """Record a transaction (a money flow). `flow` is one of expense/income/transfer.
     `account_id` and `category` must be valid (see list_reference). `currency`
     defaults to the account's currency if omitted.
+    `txn_date` is optional strict YYYY-MM-DD, no later than Singapore today;
+    omitted uses Singapore today. Historical dates affect the latest balance
+    snapshot, not old snapshots. Explicit dates require API capability v1.
 
     For transfers (flow=transfer), pass `to_account_id` to create a double-entry:
     debits `account_id` and credits `to_account_id`. Category defaults to Transfer
     unless specified. Returns {ok, txn_id, from_account, to_account} for transfers
     or {ok, txn_id} for other flows."""
+    # txn_date is optional; omitted preserves the SGT-today default.
     body = {
         "account_id": account_id,
         "category": category,
@@ -187,6 +192,14 @@ def log_transaction(
         body["to_account_id"] = to_account_id
     if currency:
         body["currency"] = currency
+    if txn_date is not None:
+        reference = _request("GET", "/api/reference")
+        capabilities = reference.get("capabilities")
+        capability = capabilities.get("transaction_date") if isinstance(capabilities, dict) else None
+        capability = capability if isinstance(capability, dict) else {}
+        if capability.get("version") != 1 or capability.get("atomic_transfer") is not True:
+            return {"error": "explicit transaction dates unsupported by deployed Tally API"}
+        body["txn_date"] = txn_date
     return _request("POST", "/api/txn", json=body)
 
 
