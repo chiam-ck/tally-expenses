@@ -44,6 +44,8 @@ CREATE TABLE IF NOT EXISTS transactions (
   currency    text NOT NULL DEFAULT 'SGD',
   source      text NOT NULL DEFAULT 'manual',
   note        text DEFAULT '',
+  display_label text,
+  original_receipt_category text,
   created_at  timestamptz NOT NULL DEFAULT now()
 );
 

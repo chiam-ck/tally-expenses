@@ -66,6 +66,7 @@ All charts are dependency-free server-rendered SVG. Timezone: Asia/Singapore.
 | `GET /api/liquid-cash` | Combined SGD liquid cash as of any date (carry-forward, current FX) |
 | `GET /api/reference` | Live accounts, categories, currencies (for agents) |
 | `GET /api/transactions` | Filtered list with `expense_total_sgd` |
+| `PATCH /api/txn/{txn_id}/metadata` | Compare-and-swap category and display label on an existing standalone manual transaction |
 | `GET /api/fx` | Exchange rates (`to_sgd` per currency) |
 
 All `/api/*` routes accept `Authorization: Bearer ***` for programmatic
@@ -139,3 +140,23 @@ A historical transaction affects the latest balance snapshot once; it does not
 recompute old snapshots. Read back with `GET /api/transactions` / MCP
 `list_transactions`, matching the exact transaction/source fields and date.
 This feature does not authorize replaying historical receipts automatically.
+
+
+### Edit transaction metadata (v1)
+
+Use the existing write-capable API key. Read the exact transaction first, then
+send its current `category` and `display_label` as `expected`, and the desired
+values as `replacement`. A null `display_label` clears the label. Other fields,
+paired transfer legs, recurring rows, and invalid categories are rejected.
+The route is idempotent for an already applied change and returns 409 when the
+current values conflict. It never changes the note, transaction ID, financial
+fields, source, or balance.
+
+General transaction lists and reports use the current category. The optional
+display label appears in History, separately from the stored receipt note.
+The same-day, full source-bound receipt-note query used by the receipt verifier
+continues to use the original category and exact note for verification; its
+`reporting_category` is current. Short or partial receipt searches are ordinary
+searches. Labels are searchable in History but cannot create false positive
+issuer matches in the API. The new database columns are nullable; no historical
+records are rewritten during migration.

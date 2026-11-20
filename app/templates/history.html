@@ -94,9 +94,10 @@
           </span>
         </div>
         <div class="txn-meta muted">{{ t.txn_date }} · {{ t.account_name }} <small>({{ t.account_id }})</small>{% if t.flow != 'transfer' %} · <span class="flow-badge {{ t.flow }}">{{ t.flow }}</span>{% endif %}</div>
-        {% if t.note %}<div class="txn-note" data-editable="note" data-txn-id="{{ t.txn_id }}">
-          <span class="txn-note-val">{{ t.note }}</span>
-          <input class="ed-inline ed-input" type="text" value="{{ t.note }}" style="display:none">
+        {% set visible_note = t.display_label if t.display_label is not none else t.note %}
+        {% if visible_note %}<div class="txn-note" data-editable="note" data-txn-id="{{ t.txn_id }}">
+          <span class="txn-note-val">{{ visible_note }}</span>
+          <input class="ed-inline ed-input" type="text" value="{{ visible_note }}" style="display:none">
         </div>{% endif %}
       </div>
       <form method="post" action="/history/txn/{{ t.txn_id }}/delete" class="inline-del"

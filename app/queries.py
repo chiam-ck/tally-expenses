@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import calendar
+import re
 from datetime import date, datetime
 from decimal import Decimal
 
@@ -573,6 +574,68 @@ def transaction_count() -> int:
     return int(row["c"]) if row else 0
 
 
+def ensure_transaction_metadata_schema() -> None:
+    """Keep these nullable; old versions continue to read and write the ledger."""
+    db.execute("""
+        ALTER TABLE transactions
+            ADD COLUMN IF NOT EXISTS display_label text,
+            ADD COLUMN IF NOT EXISTS original_receipt_category text
+    """)
+
+
+def is_receipt_note(note: str | None) -> bool:
+    # The canonical executor prefixes a 16-hex source marker. Treat even a
+    # truncated structured note as protected; preserve it verbatim.
+    return bool(note and re.match(r"^receipt:[0-9a-f]{16}(?:; |$)", note))
+
+
+def edit_transaction_metadata(txn_id: str, *, category: str | None = None,
+                              label: str | None = None, write_label: bool = False,
+                              expected: tuple[str, str | None] | None = None,
+                              history_note: bool = False) -> dict:
+    """Update a single manual transaction, never its identity or money fields."""
+    with db.transaction():
+        row = db.query_one(
+            """SELECT source, category, note, display_label
+               FROM transactions WHERE txn_id = %s FOR UPDATE""", (txn_id,))
+        if row is None:
+            return {"status": "not_found"}
+        # Keep the existing UI's nonreceipt behavior. The new API is scoped
+        # to manual, single-row items; paired or recurring rows are excluded.
+        if not history_note and (row["source"] != "manual" or txn_id.endswith(("_A", "_B"))):
+            return {"status": "unsupported_transaction"}
+        if category is not None and category not in category_names():
+            return {"status": "invalid_category"}
+        receipt = is_receipt_note(row["note"])
+        new_category = category if category is not None else row["category"]
+        new_label = label if write_label else row["display_label"]
+        new_note = row["note"]
+        if history_note and not receipt:
+            new_label = row["display_label"]
+            new_note = label if write_label else row["note"]
+            if write_label and row["display_label"] is not None:
+                new_label, new_note = label, row["note"]
+        current = (row["category"], row["display_label"])
+        desired = (new_category, new_label)
+        changed = current != desired or new_note != row["note"]
+        if changed and expected is not None and current != expected:
+            return {"status": "conflict"}
+        if changed:
+            db.execute(
+                """UPDATE transactions SET category = %(category)s,
+                       display_label = %(label)s, note = %(note)s,
+                       original_receipt_category = CASE WHEN %(preserve)s
+                           THEN COALESCE(original_receipt_category, category)
+                           ELSE original_receipt_category END
+                   WHERE txn_id = %(txn_id)s""",
+                dict(txn_id=txn_id, category=new_category, label=new_label,
+                     note=new_note, preserve=receipt and new_category != row["category"]),
+            )
+        return {"status": "ok", "txn_id": txn_id, "category": new_category,
+                "display_label": new_label, "changed": changed,
+                "note": new_label if new_label is not None else new_note}
+
+
 def _txn_where(f: dict) -> tuple[str, dict]:
     """Build a parameterized WHERE clause from a filter dict. Only fixed column
     fragments are interpolated; every user value flows through bound params."""
@@ -593,8 +656,12 @@ def _txn_where(f: dict) -> tuple[str, dict]:
     if f.get("date_to"):
         conds.append("t.txn_date <= %(date_to)s")
         params["date_to"] = f["date_to"]
-    if f.get("q"):
-        conds.append("(t.note ILIKE %(q)s OR t.txn_id ILIKE %(q)s)")
+    if f.get("canonical_receipt_note"):
+        conds.append("t.note = %(receipt_note)s")
+        params["receipt_note"] = f["canonical_receipt_note"]
+    elif f.get("q"):
+        label_clause = " OR t.display_label ILIKE %(q)s" if f.get("search_display_labels") else ""
+        conds.append("(t.note ILIKE %(q)s OR t.txn_id ILIKE %(q)s" + label_clause + ")")
         params["q"] = f"%{f['q']}%"
     where = ("WHERE " + " AND ".join(conds)) if conds else ""
     return where, params
@@ -604,10 +671,13 @@ def filtered_transactions(f: dict, limit: int, offset: int) -> list[dict]:
     where, params = _txn_where(f)
     params["limit"] = limit
     params["offset"] = offset
+    projected_category = ("COALESCE(t.original_receipt_category, t.category)"
+                          if f.get("canonical_receipt_note") else "t.category")
     return db.query(
         f"""
         SELECT t.txn_id, t.txn_date, t.account_id, a.name AS account_name,
-               t.flow, t.category, t.amount, t.currency, t.source, t.note
+               t.flow, {projected_category} AS category, t.category AS reporting_category,
+               t.amount, t.currency, t.source, t.note, t.display_label
         FROM transactions t
         JOIN accounts a USING (account_id)
         {where}
@@ -924,24 +994,4 @@ def rollover_balance(snap_date: date, account_id: str, balance, currency: str) -
             "balance": balance,
             "currency": currency,
         },
-    )
-
-
-def update_transaction(txn_id: str, *, category: str | None = None, note: str | None = None) -> int:
-    """Update category and/or note of a transaction by txn_id.
-    Returns rowcount (should be 1 on success, 0 if not found).
-    """
-    sets = []
-    params = {"txn_id": txn_id}
-    if category is not None:
-        sets.append("category = %(category)s")
-        params["category"] = category
-    if note is not None:
-        sets.append("note = %(note)s")
-        params["note"] = note
-    if not sets:
-        return 0
-    return db.execute(
-        f"UPDATE transactions SET {', '.join(sets)} WHERE txn_id = %(txn_id)s",
-        params,
     )

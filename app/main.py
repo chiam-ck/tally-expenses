@@ -19,6 +19,7 @@ import re
 from urllib.parse import quote, urlencode
 
 from starlette.middleware.gzip import GZipMiddleware
+from pydantic import BaseModel, ConfigDict, Field
 
 from . import auth, charts, db, fx, jobs, llm, queries
 from .db import SGT
@@ -52,6 +53,8 @@ async def lifespan(app: FastAPI):
         log.warning("schema ensure failed: %s", exc)
     scheduler = None
     try:
+        # Refuse to serve an API whose receipt-preservation columns are missing.
+        queries.ensure_transaction_metadata_schema()
         from datetime import datetime as _dt
 
         from apscheduler.schedulers.background import BackgroundScheduler
@@ -334,11 +337,12 @@ def page_history(
         "q": q.strip() or None,
     }
     per_page = min(max(per_page, 5), 200)
-    total = queries.count_filtered_transactions(filters)
+    total = queries.count_filtered_transactions(dict(filters, search_display_labels=True))
     pages = max(1, math.ceil(total / per_page))
     page = min(max(page, 1), pages)
     offset = (page - 1) * per_page
-    txns = [dict(t) for t in queries.filtered_transactions(filters, per_page, offset)]
+    txns = [dict(t) for t in queries.filtered_transactions(
+        dict(filters, search_display_labels=True), per_page, offset)]
     # Attach a current-FX SGD estimate to each foreign-currency row so the list
     # is readable at a glance. It's converted at *today's* rate, not the rate when
     # the money was spent, so it's an estimate — flagged as such in the template.
@@ -422,9 +426,12 @@ async def history_txn_update(request: Request, txn_id: str):
     note = form.get("note")
     if note is not None:
         note = note.strip()
-    if category or note is not None:
-        queries.update_transaction(txn_id, category=category, note=note)
-    return JSONResponse({"ok": True, "txn_id": txn_id, "category": category, "note": note})
+    edited = queries.edit_transaction_metadata(txn_id, category=category,
+                                                label=note, write_label=note is not None,
+                                                history_note=True)
+    _check_metadata_edit(edited)
+    return JSONResponse({"ok": True, "txn_id": txn_id,
+                         "category": edited["category"], "note": edited["note"]})
 
 
 # ── settings: shared ────────────────────────────────────────────────────────
@@ -730,7 +737,7 @@ def api_reference():
     rather than hard-coding ids, since accounts/categories are user-editable."""
     return JSONResponse(_jsonable({
         "accounts": queries.accounts(),
-        "capabilities": {"transaction_date": {"version": 1, "endpoint": "/api/txn/dated", "format": "YYYY-MM-DD", "timezone": "Asia/Singapore", "max": "today", "atomic_transfer": True, "balance_effect": "latest_snapshot"}},
+        "capabilities": {"transaction_date": {"version": 1, "endpoint": "/api/txn/dated", "format": "YYYY-MM-DD", "timezone": "Asia/Singapore", "max": "today", "atomic_transfer": True, "balance_effect": "latest_snapshot"}, "transaction_metadata": {"version": 1, "endpoint": "/api/txn/{txn_id}/metadata", "compare_and_swap": True}},
         "categories": queries.categories(),
         "currencies": fx.CURRENCIES,
     }))
@@ -770,6 +777,16 @@ def api_transactions(
     }
     limit = min(max(limit, 1), 500)
 
+    # The verified receipt executor looks up the entire source-bound note
+    # with identical day bounds and no other filters. Keep its proof view
+    # stable without changing ordinary merchant/issuer/date/category queries.
+    # Explicit byte equality avoids wildcard expansion in receipt evidence.
+    if (date_from and filters["date_from"] == filters["date_to"]
+            and not any(filters[k] for k in ("account", "category", "flow"))
+            and queries.is_receipt_note(q) and "; ref:" in q
+            and ("; at:" in q or "; notification-at:" in q)):
+        filters["canonical_receipt_note"] = q
+
     count = queries.count_filtered_transactions(filters)
     rows = queries.filtered_transactions(filters, limit, 0)
     rates = queries.get_fx_rates()
@@ -780,7 +797,7 @@ def api_transactions(
         txns.append(r)
 
     return JSONResponse(_jsonable({
-        "filters": filters,
+        "filters": {k: v for k, v in filters.items() if k != "canonical_receipt_note"},
         "count": count,
         "returned": len(txns),
         "expense_total_sgd": queries.filtered_expense_total_sgd(filters),
@@ -906,6 +923,48 @@ def _create_transaction(body: dict):
             note=note,
         )
         return {"ok": True, "txn_id": txn_id, "txn_date": txn_date.isoformat()}
+
+
+class TransactionMetadata(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    category: str = Field(min_length=1, max_length=100)
+    display_label: str | None = Field(max_length=200)
+
+
+class TransactionMetadataEdit(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    expected: TransactionMetadata
+    replacement: TransactionMetadata
+
+
+def _check_metadata_edit(result: dict) -> None:
+    errors = {
+        "not_found": (404, "unknown transaction"),
+        "unsupported_transaction": (409, "only standalone manual transactions support metadata edits"),
+        "invalid_category": (422, "unknown category"),
+        "conflict": (409, "transaction metadata changed; read it back before editing"),
+    }
+    if result["status"] in errors:
+        status, detail = errors[result["status"]]
+        raise HTTPException(status_code=status, detail=detail)
+
+
+@app.patch("/api/txn/{txn_id}/metadata")
+def api_txn_metadata(txn_id: str, body: TransactionMetadataEdit, request: Request):
+    """Correct reporting category and display label; never change receipt evidence."""
+    # Cookie auth is allowed on older API routes; this agent write accepts
+    # only the existing API credential, never ambient browser credentials.
+    if not auth.is_api_authed(request):
+        raise HTTPException(status_code=401, detail="API key required")
+    label = body.replacement.display_label
+    if label is not None and (not label.strip() or any(ord(c) < 32 or ord(c) == 127 for c in label)):
+        raise HTTPException(status_code=422, detail="invalid display label")
+    result = queries.edit_transaction_metadata(
+        txn_id, category=body.replacement.category, label=label,
+        write_label=True, expected=(body.expected.category, body.expected.display_label))
+    _check_metadata_edit(result)
+    return JSONResponse({"ok": True, **{k: result[k] for k in
+                        ("txn_id", "category", "display_label", "changed")}})
 
 
 @app.delete("/api/txn/{txn_id}")
